@@ -1,59 +1,187 @@
-async function detectFrame() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const a4Rect = estimateWhiteRectangle(imageData);
-
-  if (a4Rect) {
-    ctx.strokeStyle = "blue";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(a4Rect.x, a4Rect.y, a4Rect.width, a4Rect.height);
-    ctx.font = "14px Arial";
-    ctx.fillStyle = "blue";
-    ctx.fillText("Référence A4", a4Rect.x, a4Rect.y - 5);
-
-    pixelPerCm = a4Rect.width / A4_WIDTH_CM;
-  } else {
-    pixelPerCm = null;
-    ctx.font = "16px Arial";
-    ctx.fillStyle = "gray";
-    ctx.fillText("🕵️‍♂️ A4 non détectée", 10, 20);
-  }
-
-  const predictions = await model.detect(video);
-  let foundBag = false;
-
-  predictions.forEach((pred) => {
-    if (BAG_CLASSES.includes(pred.class) && pred.score > CONFIDENCE_THRESHOLD) {
-      foundBag = true;
-      const [x, y, w, h] = pred.bbox;
-
-      ctx.strokeStyle = "orange";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = "black";
-      ctx.fillText(`${pred.class} ${(pred.score * 100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
-
-      if (pixelPerCm) {
-        const widthCm = (w / pixelPerCm).toFixed(1);
-        const heightCm = (h / pixelPerCm).toFixed(1);
-        const isValid = widthCm <= 35 && heightCm <= 55;
-
-        ctx.fillStyle = isValid ? "green" : "red";
-        ctx.fillText(`~${widthCm}cm x ${heightCm}cm`, x + 5, y + h + 20);
-        ctx.fillText(isValid ? "✅ Cabine OK" : "❌ Trop grand", x + 5, y + h + 40);
-        statusEl.textContent = isValid
-          ? `✅ Bagage détecté : ${widthCm}cm × ${heightCm}cm (OK)`
-          : `🚫 Bagage trop grand : ${widthCm}cm × ${heightCm}cm`;
-      } else {
-        statusEl.textContent = "🕵️‍♂️ A4 non détectée, mesure impossible";
-      }
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Détection Bagage avec Repère A4 (forme)</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <style>
+    body {
+      background: #f7f7f7;
+      font-family: sans-serif;
+      text-align: center;
+      padding: 20px;
     }
-  });
+    h1 { color: #2a5ea5; }
+    #container {
+      position: relative;
+      display: inline-block;
+    }
+    video, canvas {
+      border-radius: 10px;
+      width: 640px;
+      height: 480px;
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #status {
+      font-size: 1.1em;
+      margin-top: 10px;
+      font-weight: bold;
+    }
+    #instructions {
+      font-style: italic;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧳 Démo Bagage avec repère A4 (forme)</h1>
+  <div id="instructions">
+    Placez une <strong>feuille A4 bien visible</strong> dans le champ, sur fond sombre. L'IA estimera la taille réelle des objets détectés.
+  </div>
+  <div id="container">
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="canvas"></canvas>
+  </div>
+  <div id="status">Chargement du modèle...</div>
 
-  if (!foundBag) {
-    statusEl.textContent = "❌ Aucun bagage détecté";
-  }
+  <script>
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const statusEl = document.getElementById("status");
 
-  requestAnimationFrame(detectFrame);
-}
+    const BAG_CLASSES = ['suitcase', 'backpack', 'handbag'];
+    const CONFIDENCE_THRESHOLD = 0.5;
+    const A4_WIDTH_CM = 21;
+    const A4_RATIO = 21 / 29.7;
+
+    let model, pixelPerCm = null;
+
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      return new Promise(resolve => {
+        video.onloadedmetadata = () => {
+          video.play();
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          resolve();
+        };
+      });
+    }
+
+    function findBrightestRectangle(imageData) {
+      const { data, width, height } = imageData;
+      let boxes = [];
+      const blockSize = 10;
+
+      for (let y = 0; y < height; y += blockSize) {
+        for (let x = 0; x < width; x += blockSize) {
+          let brightnessSum = 0;
+          for (let dy = 0; dy < blockSize; dy++) {
+            for (let dx = 0; dx < blockSize; dx++) {
+              const px = ((y + dy) * width + (x + dx)) * 4;
+              const r = data[px], g = data[px + 1], b = data[px + 2];
+              brightnessSum += (r + g + b) / 3;
+            }
+          }
+          const avgBrightness = brightnessSum / (blockSize * blockSize);
+          if (avgBrightness > 210) {
+            boxes.push({ x, y, w: blockSize, h: blockSize });
+          }
+        }
+      }
+
+      if (boxes.length < 10) return null;
+
+      // Combine bounding box
+      let minX = Math.min(...boxes.map(b => b.x));
+      let minY = Math.min(...boxes.map(b => b.y));
+      let maxX = Math.max(...boxes.map(b => b.x + b.w));
+      let maxY = Math.max(...boxes.map(b => b.y + b.h));
+
+      const widthBox = maxX - minX;
+      const heightBox = maxY - minY;
+      const ratio = widthBox / heightBox;
+
+      if (widthBox < 100 || heightBox < 150) return null;
+      if (ratio < 0.6 || ratio > 0.9) return null;
+
+      return { x: minX, y: minY, width: widthBox, height: heightBox, ratio };
+    }
+
+    async function detectFrame() {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const a4 = findBrightestRectangle(imageData);
+
+      if (a4) {
+        ctx.strokeStyle = 'blue';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(a4.x, a4.y, a4.width, a4.height);
+        ctx.fillStyle = 'blue';
+        ctx.font = "14px Arial";
+        ctx.fillText("Feuille A4 détectée", a4.x + 5, a4.y - 5);
+        pixelPerCm = a4.width / A4_WIDTH_CM;
+      } else {
+        pixelPerCm = null;
+        ctx.font = "16px Arial";
+        ctx.fillStyle = "gray";
+        ctx.fillText("❗ Feuille A4 non détectée", 10, 20);
+      }
+
+      const predictions = await model.detect(video);
+      let foundBag = false;
+
+      predictions.forEach(pred => {
+        if (BAG_CLASSES.includes(pred.class) && pred.score > CONFIDENCE_THRESHOLD) {
+          const [x, y, w, h] = pred.bbox;
+          foundBag = true;
+
+          ctx.strokeStyle = "orange";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x, y, w, h);
+          ctx.fillStyle = "black";
+          ctx.fillText(`${pred.class} ${(pred.score * 100).toFixed(1)}%`, x + 4, y - 4);
+
+          if (pixelPerCm) {
+            const widthCm = (w / pixelPerCm).toFixed(1);
+            const heightCm = (h / pixelPerCm).toFixed(1);
+            const ok = widthCm <= 35 && heightCm <= 55;
+
+            ctx.fillStyle = ok ? "green" : "red";
+            ctx.fillText(`~${widthCm}cm × ${heightCm}cm`, x + 4, y + h + 16);
+            ctx.fillText(ok ? "✅ Cabine OK" : "❌ Trop grand", x + 4, y + h + 32);
+
+            statusEl.textContent = ok
+              ? `✅ Bagage OK : ${widthCm}×${heightCm}cm`
+              : `❌ Trop grand : ${widthCm}×${heightCm}cm`;
+          } else {
+            statusEl.textContent = "🕵️‍♂️ A4 non détectée — calibration impossible";
+          }
+        }
+      });
+
+      if (!foundBag) {
+        statusEl.textContent = "❌ Aucun bagage détecté";
+      }
+
+      requestAnimationFrame(detectFrame);
+    }
+
+    async function main() {
+      await setupCamera();
+      model = await cocoSsd.load();
+      statusEl.textContent = "Modèle chargé. Calibration en cours...";
+      detectFrame();
+    }
+
+    main();
+  </script>
+</body>
+</html>
