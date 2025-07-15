@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Test Bagage OUIGO</title>
+  <title>Test Bagage OUIGO avec Voix</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
@@ -30,14 +30,13 @@
       margin-top: 15px;
       font-size: 1.2em;
       font-weight: bold;
-      color: #333;
     }
     .ok { color: green; }
     .not-ok { color: red; }
   </style>
 </head>
 <body>
-  <h1>🧳 Détection Bagage & Validation OUIGO</h1>
+  <h1>🧳 Test Bagage & Validation OUIGO</h1>
   <p>Placez une feuille A4 visible dans le cadre pour calibrer les dimensions.</p>
   <div id="container">
     <video id="video" autoplay muted playsinline></video>
@@ -51,11 +50,37 @@
     const ctx = canvas.getContext("2d");
     const statusEl = document.getElementById("status");
 
-    const A4_WIDTH_CM = 21; // cm
+    const A4_WIDTH_CM = 21; // Feuille A4 largeur en cm
     let pixelPerCm = null;
     let model = null;
 
     const BAG_CLASSES = ['suitcase', 'backpack', 'handbag'];
+    let lastSpokenMessage = "";
+
+    function speak(message) {
+      const synth = window.speechSynthesis;
+      if (!synth) return;
+
+      if (synth.speaking) synth.cancel();
+      if (message === lastSpokenMessage) return; // ne répète pas
+
+      const utter = new SpeechSynthesisUtterance(message);
+      utter.lang = 'fr-FR';
+      utter.rate = 1;
+
+      const voices = synth.getVoices();
+      const femaleVoice = voices.find(v =>
+        v.lang === 'fr-FR' && /female|femme|Google français/i.test(v.name)
+      );
+      if (femaleVoice) utter.voice = femaleVoice;
+
+      synth.speak(utter);
+      lastSpokenMessage = message;
+    }
+
+    window.speechSynthesis.onvoiceschanged = () => {
+      window.speechSynthesis.getVoices();
+    };
 
     async function setupCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -120,7 +145,7 @@
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-      // Feuille A4
+      // Détection A4
       const a4 = detectA4(imgData);
       if (a4) {
         ctx.strokeStyle = "blue";
@@ -159,14 +184,26 @@
             ctx.fillText(`~${widthCm} cm × ${heightCm} cm`, x + 4, y + h + 16);
             ctx.fillText(ok ? "✅ OUIGO : format OK" : "❌ Trop grand pour OUIGO", x + 4, y + h + 32);
 
-            statusEl.innerHTML = ok
-              ? `<span class="ok">✅ Bagage accepté en cabine OUIGO (${widthCm}×${heightCm} cm)</span>`
-              : `<span class="not-ok">❌ Bagage trop grand pour OUIGO (${widthCm}×${heightCm} cm)</span>`;
+            if (ok) {
+              const msg = `Bagage accepté en cabine OUIGO. N'oubliez pas l'option bagage si vous en avez plus d’un !`;
+              statusEl.innerHTML = `<span class="ok">
+                ✅ Bagage accepté en cabine OUIGO (${widthCm}×${heightCm} cm)<br>
+                🧳 <em>${msg}</em>
+              </span>`;
+              speak(msg);
+            } else {
+              const msg = `Bagage trop grand pour OUIGO. Pensez à l’option bagage ou à voyager plus léger.`;
+              statusEl.innerHTML = `<span class="not-ok">
+                ❌ Bagage trop grand pour OUIGO (${widthCm}×${heightCm} cm)<br>
+                😬 <em>${msg}</em>
+              </span>`;
+              speak(msg);
+            }
           } else {
             statusEl.textContent = "🕵️ Calibration en attente (A4 non détectée)";
           }
 
-          break;
+          break; // on ne traite qu’un bagage à la fois
         }
       }
 
