@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Détection IA - Caméra arrière prioritaire</title>
+  <title>Détection IA - Caméra arrière via enumerateDevices()</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
@@ -55,7 +55,7 @@
   </style>
 </head>
 <body>
-  <h1>🧠 Détection IA - Caméra arrière prioritaire</h1>
+  <h1>🧠 Détection IA - Caméra arrière via enumerateDevices()</h1>
   <div id="wrapper">
     <video id="webcam" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
@@ -77,22 +77,45 @@
     const bagClasses = ['suitcase', 'backpack', 'handbag'];
 
     async function setupCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: { exact: "environment" } } 
-        });
-        video.srcObject = stream;
-        return new Promise(resolve => {
-          video.onloadedmetadata = () => resolve(video);
-        });
-      } catch (e) {
-        console.warn("Caméra arrière non disponible, utilisation caméra frontale");
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
-        return new Promise(resolve => {
-          video.onloadedmetadata = () => resolve(video);
-        });
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        alert("Votre navigateur ne supporte pas la sélection de caméra");
+        return;
       }
+      
+      // Demande accès caméra frontale par défaut pour obtenir labels
+      let stream = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        await new Promise(resolve => video.onloadedmetadata = resolve);
+      } catch(e) {
+        alert("Impossible d'accéder à la caméra : " + e.message);
+        throw e;
+      }
+      
+      // Récupère la liste des devices, labels remplis car autorisation donnée
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      
+      // Cherche caméra arrière dans les labels
+      let backCamera = videoDevices.find(device => /back|rear|environment/gi.test(device.label));
+      
+      // Si pas trouvée, prend la première
+      if (!backCamera) {
+        backCamera = videoDevices[0];
+      }
+      
+      // Si la caméra sélectionnée n'est pas celle déjà en cours, switch
+      if (backCamera && stream.getVideoTracks()[0].getSettings().deviceId !== backCamera.deviceId) {
+        stream.getTracks().forEach(track => track.stop()); // coupe la caméra initiale
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: backCamera.deviceId } }
+        });
+        video.srcObject = newStream;
+        await new Promise(resolve => video.onloadedmetadata = resolve);
+      }
+      
+      return video;
     }
 
     function captureSnapshot() {
