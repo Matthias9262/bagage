@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Détection IA avec cadre visuel - seuil ajusté</title>
+  <title>Détection IA - Toutes les valises/sacs détectés</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
@@ -36,10 +36,14 @@
       margin-top: 1em;
       font-weight: bold;
     }
-    #confidence {
-      font-size: 1.2em;
-      margin-top: 0.5em;
+    #detectionsList {
+      margin-top: 1em;
+      font-size: 1.1em;
       color: #333;
+      max-width: 640px;
+      margin-left: auto;
+      margin-right: auto;
+      text-align: left;
     }
     #snapshot {
       margin-top: 1em;
@@ -51,19 +55,19 @@
   </style>
 </head>
 <body>
-  <h1>🧠 Détection IA - Cadre visuel & capture automatique (seuil 40%)</h1>
+  <h1>🧠 Détection IA - Valises/Sacs détectés</h1>
   <div id="wrapper">
     <video id="webcam" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
   </div>
   <div id="status">Chargement du modèle...</div>
-  <div id="confidence"></div>
+  <div id="detectionsList"></div>
   <img id="snapshot" alt="Capture automatique" />
 
   <script>
     const video = document.getElementById('webcam');
     const statusDiv = document.getElementById('status');
-    const confidenceDiv = document.getElementById('confidence');
+    const detectionsList = document.getElementById('detectionsList');
     const canvas = document.getElementById('overlay');
     const ctx = canvas.getContext('2d');
     const snapshotImg = document.getElementById('snapshot');
@@ -99,41 +103,40 @@
 
       async function detect() {
         const predictions = await model.detect(video);
-        console.log('Détections:', predictions);
-
-        // Filtrer bagages détectés avec seuil abaissé à 0.4
-        const detectedBags = predictions.filter(p => bagClasses.includes(p.class) && p.score > 0.4);
-
-        // Effacer le canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+        const detectedBags = predictions.filter(p => bagClasses.includes(p.class) && p.score > 0.3);
+
         if (detectedBags.length > 0) {
-          // Meilleure détection
-          const best = detectedBags.reduce((a,b) => (a.score > b.score) ? a : b);
+          statusDiv.innerHTML = `🧳 <span style='color: green'>Bagages détectés : ${detectedBags.length}</span>`;
 
-          statusDiv.innerHTML = `🧳 <span style='color: green'>Bagage détecté : ${best.class}</span>`;
-          confidenceDiv.innerHTML = `Confiance : ${(best.score*100).toFixed(1)} %`;
+          // Afficher la liste des objets détectés
+          detectionsList.innerHTML = detectedBags.map(p => 
+            `${p.class} - Confiance : ${(p.score*100).toFixed(1)} %`
+          ).join('<br>');
 
-          // Dessiner rectangle et texte
+          // Dessiner rectangles autour de chaque bagage détecté
           ctx.lineWidth = 4;
           ctx.strokeStyle = 'limegreen';
           ctx.font = '18px Arial';
           ctx.fillStyle = 'limegreen';
 
-          const [x, y, width, height] = best.bbox;
-          ctx.strokeRect(x, y, width, height);
-          ctx.fillText(`${best.class} ${(best.score*100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
+          detectedBags.forEach(p => {
+            const [x, y, width, height] = p.bbox;
+            ctx.strokeRect(x, y, width, height);
+            ctx.fillText(`${p.class} ${(p.score*100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
+          });
 
-          // Capture automatique toutes les 5s max
+          // Capture automatique max toutes les 5 secondes
           const now = Date.now();
           if (now - lastCaptured > captureCooldown) {
             captureSnapshot();
             lastCaptured = now;
           }
+
         } else {
           statusDiv.innerHTML = `🔍 <span style='color: gray'>Aucun bagage détecté</span>`;
-          confidenceDiv.innerHTML = '';
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          detectionsList.innerHTML = '';
           snapshotImg.src = '';
         }
 
