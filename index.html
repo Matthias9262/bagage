@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Détection Bagage + Marque + Capture Photo</title>
+  <title>Détection Bagage + Reconnaissance Marque (OCR)</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
@@ -41,50 +41,20 @@
       margin-left: auto;
       margin-right: auto;
     }
-    #captured-photo-container {
-      margin-top: 20px;
-    }
-    #captured-photo {
-      max-width: 320px;
-      border-radius: 8px;
-      box-shadow: 0 0 8px rgba(0,0,0,0.3);
-    }
-    #btn-capture {
-      margin-top: 10px;
-      cursor: pointer;
-      font-size: 1em;
-      padding: 6px 12px;
-      border: none;
-      border-radius: 6px;
-      background-color: #2a5ea5;
-      color: white;
-      transition: background-color 0.3s ease;
-    }
-    #btn-capture:hover {
-      background-color: #194785;
-    }
   </style>
 </head>
 <body>
-  <h1>🧳 Détection Bagage + Marque + Capture Photo</h1>
+  <h1>🧳 Détection Bagage + Marque (OCR)</h1>
   <div id="instructions">
     Placez une <strong>feuille A4 visible</strong> sur fond sombre pour calibrer la taille.<br/>
     Montrez un bagage avec un logo/label lisible (ex: Eastpak, Delsey) pour reconnaissance OCR.<br/>
-    Patientez quelques secondes pour la lecture OCR.<br/>
-    La photo sera capturée automatiquement quand un bagage cabine OK est détecté.
+    Patientez quelques secondes pour la lecture OCR.
   </div>
   <div id="container">
     <video id="video" autoplay muted playsinline></video>
     <canvas id="canvas"></canvas>
   </div>
   <div id="status">Chargement du modèle...</div>
-
-  <div id="captured-photo-container">
-    <h3>📸 Photo capturée :</h3>
-    <img id="captured-photo" alt="Photo bagage" />
-    <br/>
-    <button id="btn-capture">📷 Capturer maintenant</button>
-  </div>
 
   <script>
     const video = document.getElementById("video");
@@ -96,6 +66,7 @@
     const CONFIDENCE_THRESHOLD = 0.5;
     const A4_WIDTH_CM = 21;
 
+    // Mini base de données bagages
     const BAG_DATABASE = [
       { brand: "Eastpak", model: "Tranverz S", type: "suitcase", width: 32.5, height: 51 },
       { brand: "Delsey", model: "Turenne 55cm", type: "suitcase", width: 35, height: 55 },
@@ -108,8 +79,6 @@
     let lastOcrText = "";
     let lastOcrTime = 0;
     const OCR_COOLDOWN = 3000; // 3 sec entre lectures
-    let lastCaptureTime = 0;
-    const CAPTURE_COOLDOWN_MS = 5000; // 5 sec entre captures automatiques
 
     async function setupCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
@@ -124,6 +93,7 @@
       });
     }
 
+    // Détection d'un grand rectangle blanc proche du ratio A4 pour calibration
     function findBrightestRectangle(imageData) {
       const { data, width, height } = imageData;
       let boxes = [];
@@ -163,12 +133,14 @@
       return { x: minX, y: minY, width: widthBox, height: heightBox, ratio };
     }
 
+    // OCR sur la zone du bagage
     async function doOcrOnBag(bbox) {
       if (!ocrWorker) return null;
       const now = Date.now();
-      if (now - lastOcrTime < OCR_COOLDOWN) return null;
+      if (now - lastOcrTime < OCR_COOLDOWN) return null; // cooldown pour éviter surcharges
 
       const [x, y, w, h] = bbox;
+      // Extraction patch
       const imgData = ctx.getImageData(x, y, w, h);
       const canvasTmp = document.createElement('canvas');
       canvasTmp.width = w;
@@ -182,6 +154,7 @@
       return lastOcrText;
     }
 
+    // Match taille +/-10% + type bagage
     function findBestMatch(type, widthCm, heightCm) {
       for (const bag of BAG_DATABASE) {
         if (bag.type !== type) continue;
@@ -192,6 +165,7 @@
       return null;
     }
 
+    // Cherche un mot clé (marque) dans le texte OCR
     function findBrandInText(text) {
       if (!text) return null;
       const brands = BAG_DATABASE.map(b => b.brand.toLowerCase());
@@ -199,18 +173,6 @@
         if (text.includes(brand)) return brand;
       }
       return null;
-    }
-
-    function capturePhoto() {
-      const now = Date.now();
-      if (now - lastCaptureTime < CAPTURE_COOLDOWN_MS) {
-        // cooldown pour éviter captures trop fréquentes
-        return;
-      }
-      lastCaptureTime = now;
-      const imgDataUrl = canvas.toDataURL("image/jpeg", 0.9);
-      const imgElem = document.getElementById("captured-photo");
-      imgElem.src = imgDataUrl;
     }
 
     async function detectFrame() {
@@ -256,6 +218,7 @@
             ctx.fillText(`~${widthCm}cm × ${heightCm}cm`, x + 4, y + h + 16);
             ctx.fillText(ok ? "✅ Cabine OK" : "❌ Trop grand", x + 4, y + h + 32);
 
+            // OCR & matching
             const ocrText = await doOcrOnBag(pred.bbox);
             let brandDetected = null;
             if (ocrText) brandDetected = findBrandInText(ocrText);
@@ -282,15 +245,10 @@
                 ? `✅ Bagage OK: ${widthCm}×${heightCm}cm - Modèle non reconnu`
                 : `❌ Trop grand : ${widthCm}×${heightCm}cm - Modèle non reconnu`;
             }
-
-            // Capture automatique si bagage cabine OK
-            if (ok) {
-              capturePhoto();
-            }
           } else {
             statusEl.textContent = "🕵️‍♂️ A4 non détectée — calibration impossible";
           }
-          break;
+          break; // On affiche un seul bagage à la fois pour la clarté
         }
       }
 
@@ -307,6 +265,7 @@
       statusEl.textContent = "Modèle chargé, initialisation OCR...";
       ocrWorker = Tesseract.createWorker({
         logger: m => {
+          // console.log(m);
           if (m.status === "recognizing text") statusEl.textContent = `OCR: ${Math.round(m.progress * 100)}%`;
         }
       });
@@ -316,8 +275,6 @@
       statusEl.textContent = "Modèle chargé, détection en cours...";
       detectFrame();
     }
-
-    document.getElementById("btn-capture").addEventListener("click", capturePhoto);
 
     main();
   </script>
