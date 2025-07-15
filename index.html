@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Détection IA avec cadre visuel</title>
+  <title>Détection IA avec cadre visuel - seuil ajusté</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
@@ -51,7 +51,7 @@
   </style>
 </head>
 <body>
-  <h1>🧠 Détection IA - Cadre visuel & capture automatique</h1>
+  <h1>🧠 Détection IA - Cadre visuel & capture automatique (seuil 40%)</h1>
   <div id="wrapper">
     <video id="webcam" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
@@ -99,21 +99,22 @@
 
       async function detect() {
         const predictions = await model.detect(video);
+        console.log('Détections:', predictions);
+
+        // Filtrer bagages détectés avec seuil abaissé à 0.4
+        const detectedBags = predictions.filter(p => bagClasses.includes(p.class) && p.score > 0.4);
 
         // Effacer le canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Filtrer bagages détectés
-        const detectedBags = predictions.filter(p => bagClasses.includes(p.class) && p.score > 0.6);
-
         if (detectedBags.length > 0) {
-          // On prend le meilleur score
+          // Meilleure détection
           const best = detectedBags.reduce((a,b) => (a.score > b.score) ? a : b);
 
           statusDiv.innerHTML = `🧳 <span style='color: green'>Bagage détecté : ${best.class}</span>`;
           confidenceDiv.innerHTML = `Confiance : ${(best.score*100).toFixed(1)} %`;
 
-          // Dessiner un rectangle autour de l'objet détecté
+          // Dessiner rectangle et texte
           ctx.lineWidth = 4;
           ctx.strokeStyle = 'limegreen';
           ctx.font = '18px Arial';
@@ -123,7 +124,7 @@
           ctx.strokeRect(x, y, width, height);
           ctx.fillText(`${best.class} ${(best.score*100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
 
-          // Capture automatique toutes les 5 secondes max
+          // Capture automatique toutes les 5s max
           const now = Date.now();
           if (now - lastCaptured > captureCooldown) {
             captureSnapshot();
@@ -133,7 +134,7 @@
           statusDiv.innerHTML = `🔍 <span style='color: gray'>Aucun bagage détecté</span>`;
           confidenceDiv.innerHTML = '';
           ctx.clearRect(0, 0, canvas.width, canvas.height);
-          snapshotImg.src = ''; // Effacer capture si plus rien
+          snapshotImg.src = '';
         }
 
         requestAnimationFrame(detect);
