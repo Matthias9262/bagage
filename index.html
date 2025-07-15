@@ -1,182 +1,155 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8" />
-<title>Détection bagage IA - Version fonctionnelle</title>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-<style>
-  body {
-    font-family: Arial, sans-serif;
-    background: #f0f0f0;
-    margin: 20px;
-    text-align: center;
-  }
-  #video-container {
-    position: relative;
-    display: inline-block;
-  }
-  video, canvas {
-    border-radius: 10px;
-    width: 640px;
-    height: 480px;
-  }
-  canvas {
-    position: absolute;
-    top: 0; left: 0;
-    pointer-events: none;
-  }
-  #status {
-    margin-top: 10px;
-    font-weight: bold;
-  }
-  #detections {
-    max-width: 640px;
-    margin: 10px auto;
-    background: white;
-    padding: 10px;
-    border-radius: 8px;
-    height: 120px;
-    overflow-y: auto;
-    text-align: left;
-  }
-</style>
+  <meta charset="UTF-8">
+  <title>Démo IA Bagage - Gabarit Cabine</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <style>
+    body {
+      background: #f9f9f9;
+      font-family: sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      color: #1a73e8;
+    }
+    video, canvas {
+      border-radius: 12px;
+      width: 640px;
+      height: 480px;
+    }
+    #container {
+      position: relative;
+      display: inline-block;
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 1.2em;
+      font-weight: bold;
+    }
+    #note {
+      margin-top: 10px;
+      font-style: italic;
+      color: #555;
+    }
+  </style>
 </head>
 <body>
+  <h1>🧳 Détection Bagage - Gabarit Cabine</h1>
+  <div id="note">Positionnez-vous à environ <strong>1 mètre</strong> de la caméra pour une estimation réaliste.</div>
+  <div id="container">
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="canvas"></canvas>
+  </div>
+  <div id="status">Chargement du modèle...</div>
 
-<h1>Détection Bagage IA</h1>
+  <script>
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const statusEl = document.getElementById("status");
 
-<div>
-  <select id="cameraSelect"></select>
-  <button id="startBtn">Démarrer caméra</button>
-</div>
+    let model;
 
-<div id="video-container">
-  <video id="video" autoplay muted playsinline></video>
-  <canvas id="canvas"></canvas>
-</div>
+    const BAG_CLASSES = ['suitcase', 'backpack', 'handbag'];
+    const CONFIDENCE_THRESHOLD = 0.5;
 
-<div id="status">Modèle non chargé</div>
-<div id="detections"></div>
+    // Gabarit cabine approximatif en pixels à 1 mètre (~55x35 cm visuellement ici)
+    const GABARIT = {
+      width: 250,
+      height: 400
+    };
 
-<script>
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-  const status = document.getElementById('status');
-  const detectionsDiv = document.getElementById('detections');
-  const cameraSelect = document.getElementById('cameraSelect');
-  const startBtn = document.getElementById('startBtn');
+    function drawGabarit() {
+      const x = (canvas.width - GABARIT.width) / 2;
+      const y = (canvas.height - GABARIT.height) / 2;
 
-  let model;
-  let stream;
-  let detectionInterval;
-  const bagClasses = ['suitcase', 'backpack', 'handbag'];
-  const confidenceThreshold = 0.5;
+      ctx.strokeStyle = '#1a73e8';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([10, 6]);
+      ctx.strokeRect(x, y, GABARIT.width, GABARIT.height);
 
-  async function setupCameras() {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter(d => d.kind === 'videoinput');
-    cameraSelect.innerHTML = '';
-    videoDevices.forEach((device, i) => {
-      const option = document.createElement('option');
-      option.value = device.deviceId;
-      option.text = device.label || `Caméra ${i + 1}`;
-      cameraSelect.appendChild(option);
-    });
-  }
-
-  async function startCamera() {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
+      ctx.font = "16px Arial";
+      ctx.fillStyle = '#1a73e8';
+      ctx.fillText("Gabarit cabine (55×35×25 cm)", x + 10, y - 10);
     }
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: cameraSelect.value ? { exact: cameraSelect.value } : undefined }
-      });
+
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       video.srcObject = stream;
-      await new Promise(resolve => (video.onloadedmetadata = resolve));
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-    } catch (err) {
-      alert('Erreur accès caméra : ' + err.message);
+
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => {
+          video.play();
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          resolve();
+        };
+      });
     }
-  }
 
-  async function loadModel() {
-    status.textContent = 'Chargement du modèle...';
-    model = await cocoSsd.load();
-    status.textContent = 'Modèle chargé ✅';
-  }
+    async function detectFrame() {
+      const predictions = await model.detect(video);
 
-  function drawTemplate() {
-    const maxWidth = 300;
-    const maxHeight = 400;
-    const x = (canvas.width - maxWidth) / 2;
-    const y = (canvas.height - maxHeight) / 2;
-    ctx.save();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = '#1a73e8';
-    ctx.lineWidth = 3;
-    ctx.setLineDash([10,5]);
-    ctx.strokeRect(x, y, maxWidth, maxHeight);
-    ctx.font = '16px Arial';
-    ctx.fillStyle = '#1a73e8';
-    ctx.fillText('Taille max autorisée', x + 10, y - 10);
-    ctx.restore();
-  }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGabarit();
 
-  async function detect() {
-    if (!model) return;
-    drawTemplate();
+      let foundBag = false;
 
-    const predictions = await model.detect(video);
-    drawTemplate();
+      predictions.forEach(pred => {
+        if (BAG_CLASSES.includes(pred.class) && pred.score > CONFIDENCE_THRESHOLD) {
+          foundBag = true;
+          const [x, y, width, height] = pred.bbox;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawTemplate();
+          // Check if it fits the gabarit
+          const centerX = x + width / 2;
+          const centerY = y + height / 2;
+          const fitsWidth = width <= GABARIT.width;
+          const fitsHeight = height <= GABARIT.height;
+          const isInside =
+            fitsWidth &&
+            fitsHeight &&
+            centerX > (canvas.width - GABARIT.width) / 2 &&
+            centerX < (canvas.width + GABARIT.width) / 2 &&
+            centerY > (canvas.height - GABARIT.height) / 2 &&
+            centerY < (canvas.height + GABARIT.height) / 2;
 
-    let detectedBags = predictions.filter(p => bagClasses.includes(p.class) && p.score > confidenceThreshold);
+          const color = isInside ? "green" : "red";
 
-    detectionsDiv.innerHTML = '';
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 4;
+          ctx.strokeRect(x, y, width, height);
+          ctx.fillStyle = color;
+          ctx.font = "16px Arial";
+          ctx.fillText(
+            `${pred.class} ${(pred.score * 100).toFixed(1)}%`,
+            x,
+            y > 20 ? y - 5 : y + 20
+          );
+        }
+      });
 
-    detectedBags.forEach(pred => {
-      const [x, y, w, h] = pred.bbox;
-      const maxWidthAllowed = 300;
-      const maxHeightAllowed = 400;
-      const isValid = w <= maxWidthAllowed && h <= maxHeightAllowed;
+      statusEl.textContent = foundBag ? "Bagage détecté ✅" : "Aucun bagage détecté";
 
-      ctx.strokeStyle = isValid ? 'limegreen' : 'red';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(x, y, w, h);
-      ctx.font = '18px Arial';
-      ctx.fillStyle = isValid ? 'limegreen' : 'red';
-      ctx.fillText(`${pred.class} ${(pred.score*100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
-
-      detectionsDiv.innerHTML += `<div style="color:${isValid ? 'green' : 'red'}">
-        ${pred.class} - Confiance : ${(pred.score*100).toFixed(1)}% - Taille: ${Math.round(w)}x${Math.round(h)} - ${isValid ? '✅ OK' : '❌ Trop grand'}
-      </div>`;
-    });
-  }
-
-  startBtn.onclick = async () => {
-    startBtn.disabled = true;
-    await startCamera();
-    if (!model) {
-      await loadModel();
+      requestAnimationFrame(detectFrame);
     }
-    status.textContent = 'Détection en cours...';
 
-    if (detectionInterval) clearInterval(detectionInterval);
-    detectionInterval = setInterval(detect, 200); // 5fps
+    async function main() {
+      await setupCamera();
+      model = await cocoSsd.load();
+      statusEl.textContent = "Modèle chargé, détection en cours...";
+      detectFrame();
+    }
 
-    startBtn.disabled = false;
-  };
-
-  window.onload = () => {
-    setupCameras();
-  };
-</script>
-
+    main();
+  </script>
 </body>
 </html>
