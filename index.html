@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Détection IA avec sélection manuelle de la caméra (traduction FR)</title>
+  <title>Détection IA stabilisée avec moyenne glissante</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
@@ -60,7 +60,7 @@
   </style>
 </head>
 <body>
-  <h1>🧠 Détection IA avec sélection manuelle de la caméra (traduction FR)</h1>
+  <h1>🧠 Détection IA stabilisée avec moyenne glissante</h1>
   
   <select id="cameraSelect"></select>
   <button id="startButton">Démarrer la caméra</button>
@@ -87,10 +87,8 @@
     let detectRunning = false;
     let lastCaptured = 0;
     const captureCooldown = 5000; // 5 secondes entre captures
-    // Ne garder que les classes utiles
     const bagClasses = ['suitcase', 'backpack', 'handbag'];
 
-    // Traduction anglais -> français
     const classTranslations = {
       'suitcase': 'valise',
       'backpack': 'sac à dos',
@@ -98,6 +96,16 @@
     };
 
     let stream = null;
+
+    // Stockage des scores pour moyenne glissante (clé: objet détecté, valeur: tableau des scores)
+    const detectionHistory = {};
+
+    // Fonction pour générer une clé unique pour un objet détecté (classe + position arrondie)
+    function getDetectionKey(detection) {
+      const x = Math.round(detection.bbox[0] / 20);
+      const y = Math.round(detection.bbox[1] / 20);
+      return `${detection.class}_${x}_${y}`;
+    }
 
     async function listCameras() {
       try {
@@ -150,10 +158,22 @@
 
         const detectedBags = predictions.filter(p => bagClasses.includes(p.class) && p.score > 0.3);
 
-        if (detectedBags.length > 0) {
-          statusDiv.innerHTML = `🧳 <span style="color: green">Bagages détectés : ${detectedBags.length}</span>`;
-          detectionsList.innerHTML = detectedBags
-            .map(p => `${classTranslations[p.class] || p.class} - Confiance : ${(p.score * 100).toFixed(1)} %`)
+        // Mettre à jour detectionHistory avec moyenne glissante
+        const stabilizedDetections = detectedBags.map(detection => {
+          const key = getDetectionKey(detection);
+          if (!detectionHistory[key]) detectionHistory[key] = [];
+          detectionHistory[key].push(detection.score);
+          if (detectionHistory[key].length > 5) detectionHistory[key].shift();
+
+          // Calcul moyenne
+          const avgScore = detectionHistory[key].reduce((a, b) => a + b, 0) / detectionHistory[key].length;
+          return { ...detection, avgScore };
+        });
+
+        if (stabilizedDetections.length > 0) {
+          statusDiv.innerHTML = `🧳 <span style="color: green">Bagages détectés : ${stabilizedDetections.length}</span>`;
+          detectionsList.innerHTML = stabilizedDetections
+            .map(p => `${classTranslations[p.class] || p.class} - Confiance : ${(p.avgScore * 100).toFixed(1)} %`)
             .join('<br>');
 
           ctx.lineWidth = 4;
@@ -161,10 +181,10 @@
           ctx.font = '18px Arial';
           ctx.fillStyle = 'limegreen';
 
-          detectedBags.forEach(p => {
+          stabilizedDetections.forEach(p => {
             const [x, y, width, height] = p.bbox;
             ctx.strokeRect(x, y, width, height);
-            ctx.fillText(`${classTranslations[p.class] || p.class} ${(p.score * 100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
+            ctx.fillText(`${classTranslations[p.class] || p.class} ${(p.avgScore * 100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
           });
 
           const now = Date.now();
@@ -177,6 +197,7 @@
           detectionsList.innerHTML = '';
           snapshotImg.src = '';
         }
+
         requestAnimationFrame(frame);
       }
 
