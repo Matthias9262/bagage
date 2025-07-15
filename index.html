@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Détection IA - Caméra arrière via enumerateDevices()</title>
+  <title>Détection IA avec sélection manuelle de la caméra</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
@@ -52,70 +52,126 @@
       max-width: 90vw;
       width: 320px;
     }
+    #cameraSelect, #startButton {
+      font-size: 1em;
+      margin-top: 1em;
+      padding: 0.5em 1em;
+    }
   </style>
 </head>
 <body>
-  <h1>🧠 Détection IA - Caméra arrière via enumerateDevices()</h1>
+  <h1>🧠 Détection IA avec sélection manuelle de la caméra</h1>
+  
+  <select id="cameraSelect"></select>
+  <button id="startButton">Démarrer la caméra</button>
+  
   <div id="wrapper">
     <video id="webcam" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
   </div>
-  <div id="status">Chargement du modèle...</div>
+  <div id="status">Modèle non chargé</div>
   <div id="detectionsList"></div>
   <img id="snapshot" alt="Capture automatique" />
 
   <script>
     const video = document.getElementById('webcam');
-    const statusDiv = document.getElementById('status');
-    const detectionsList = document.getElementById('detectionsList');
     const canvas = document.getElementById('overlay');
     const ctx = canvas.getContext('2d');
+    const statusDiv = document.getElementById('status');
+    const detectionsList = document.getElementById('detectionsList');
     const snapshotImg = document.getElementById('snapshot');
+    const cameraSelect = document.getElementById('cameraSelect');
+    const startButton = document.getElementById('startButton');
 
+    let model = null;
+    let detectRunning = false;
     let lastCaptured = 0;
     const captureCooldown = 5000; // 5 secondes entre captures
     const bagClasses = ['suitcase', 'backpack', 'handbag'];
+    let stream = null;
 
-    async function setupCamera() {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-        alert("Votre navigateur ne supporte pas la sélection de caméra");
-        return;
-      }
-      
-      // Demande accès caméra frontale par défaut pour obtenir labels
-      let stream = null;
+    async function listCameras() {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
-        await new Promise(resolve => video.onloadedmetadata = resolve);
-      } catch(e) {
-        alert("Impossible d'accéder à la caméra : " + e.message);
-        throw e;
-      }
-      
-      // Récupère la liste des devices, labels remplis car autorisation donnée
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(d => d.kind === 'videoinput');
-      
-      // Cherche caméra arrière dans les labels
-      let backCamera = videoDevices.find(device => /back|rear|environment/gi.test(device.label));
-      
-      // Si pas trouvée, prend la première
-      if (!backCamera) {
-        backCamera = videoDevices[0];
-      }
-      
-      // Si la caméra sélectionnée n'est pas celle déjà en cours, switch
-      if (backCamera && stream.getVideoTracks()[0].getSettings().deviceId !== backCamera.deviceId) {
-        stream.getTracks().forEach(track => track.stop()); // coupe la caméra initiale
-        const newStream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { exact: backCamera.deviceId } }
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        cameraSelect.innerHTML = '';
+        videoDevices.forEach((device, i) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.text = device.label || `Caméra ${i + 1}`;
+          cameraSelect.appendChild(option);
         });
-        video.srcObject = newStream;
-        await new Promise(resolve => video.onloadedmetadata = resolve);
+      } catch (e) {
+        alert('Erreur lors de la récupération des caméras : ' + e.message);
       }
-      
-      return video;
+    }
+
+    async function startCamera(deviceId) {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: deviceId ? { exact: deviceId } : undefined }
+        });
+        video.srcObject = stream;
+        await new Promise(resolve => (video.onloadedmetadata = resolve));
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      } catch (e) {
+        alert('Erreur lors de l\'accès à la caméra : ' + e.message);
+      }
+    }
+
+    async function loadModel() {
+      statusDiv.innerText = 'Chargement du modèle...';
+      model = await cocoSsd.load();
+      statusDiv.innerText = 'Modèle chargé ✅';
+    }
+
+    async function detect() {
+      if (!model) return;
+      detectRunning = true;
+
+      async function frame() {
+        if (!detectRunning) return;
+
+        const predictions = await model.detect(video);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const detectedBags = predictions.filter(p => bagClasses.includes(p.class) && p.score > 0.3);
+
+        if (detectedBags.length > 0) {
+          statusDiv.innerHTML = `🧳 <span style="color: green">Bagages détectés : ${detectedBags.length}</span>`;
+          detectionsList.innerHTML = detectedBags
+            .map(p => `${p.class} - Confiance : ${(p.score * 100).toFixed(1)} %`)
+            .join('<br>');
+
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = 'limegreen';
+          ctx.font = '18px Arial';
+          ctx.fillStyle = 'limegreen';
+
+          detectedBags.forEach(p => {
+            const [x, y, width, height] = p.bbox;
+            ctx.strokeRect(x, y, width, height);
+            ctx.fillText(`${p.class} ${(p.score * 100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
+          });
+
+          const now = Date.now();
+          if (now - lastCaptured > captureCooldown) {
+            captureSnapshot();
+            lastCaptured = now;
+          }
+        } else {
+          statusDiv.innerHTML = `🔍 <span style="color: gray">Aucun bagage détecté</span>`;
+          detectionsList.innerHTML = '';
+          snapshotImg.src = '';
+        }
+        requestAnimationFrame(frame);
+      }
+
+      frame();
     }
 
     function captureSnapshot() {
@@ -127,56 +183,16 @@
       snapshotImg.src = snapshotCanvas.toDataURL('image/png');
     }
 
-    async function main() {
-      await setupCamera();
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      const model = await cocoSsd.load();
-      statusDiv.innerText = "Modèle chargé ✅. Analyse en cours...";
-
-      async function detect() {
-        const predictions = await model.detect(video);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        const detectedBags = predictions.filter(p => bagClasses.includes(p.class) && p.score > 0.3);
-
-        if (detectedBags.length > 0) {
-          statusDiv.innerHTML = `🧳 <span style='color: green'>Bagages détectés : ${detectedBags.length}</span>`;
-
-          detectionsList.innerHTML = detectedBags.map(p => 
-            `${p.class} - Confiance : ${(p.score*100).toFixed(1)} %`
-          ).join('<br>');
-
-          ctx.lineWidth = 4;
-          ctx.strokeStyle = 'limegreen';
-          ctx.font = '18px Arial';
-          ctx.fillStyle = 'limegreen';
-
-          detectedBags.forEach(p => {
-            const [x, y, width, height] = p.bbox;
-            ctx.strokeRect(x, y, width, height);
-            ctx.fillText(`${p.class} ${(p.score*100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
-          });
-
-          const now = Date.now();
-          if (now - lastCaptured > captureCooldown) {
-            captureSnapshot();
-            lastCaptured = now;
-          }
-        } else {
-          statusDiv.innerHTML = `🔍 <span style='color: gray'>Aucun bagage détecté</span>`;
-          detectionsList.innerHTML = '';
-          snapshotImg.src = '';
-        }
-
-        requestAnimationFrame(detect);
-      }
-
+    startButton.onclick = async () => {
+      detectRunning = false; // stop detection if running
+      await startCamera(cameraSelect.value);
+      if (!model) await loadModel();
       detect();
-    }
+    };
 
-    main();
+    // Initialisation : liste des caméras
+    listCameras();
+
   </script>
 </body>
 </html>
