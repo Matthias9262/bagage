@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Détection IA avec sélection manuelle de la caméra</title>
+  <title>Détection IA avec sélection manuelle de la caméra (traduction FR)</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
@@ -60,7 +60,7 @@
   </style>
 </head>
 <body>
-  <h1>🧠 Détection IA avec sélection manuelle de la caméra</h1>
+  <h1>🧠 Détection IA avec sélection manuelle de la caméra (traduction FR)</h1>
   
   <select id="cameraSelect"></select>
   <button id="startButton">Démarrer la caméra</button>
@@ -87,7 +87,16 @@
     let detectRunning = false;
     let lastCaptured = 0;
     const captureCooldown = 5000; // 5 secondes entre captures
+    // Ne garder que les classes utiles
     const bagClasses = ['suitcase', 'backpack', 'handbag'];
+
+    // Traduction anglais -> français
+    const classTranslations = {
+      'suitcase': 'valise',
+      'backpack': 'sac à dos',
+      'handbag': 'sac à main',
+    };
+
     let stream = null;
 
     async function listCameras() {
@@ -144,7 +153,7 @@
         if (detectedBags.length > 0) {
           statusDiv.innerHTML = `🧳 <span style="color: green">Bagages détectés : ${detectedBags.length}</span>`;
           detectionsList.innerHTML = detectedBags
-            .map(p => `${p.class} - Confiance : ${(p.score * 100).toFixed(1)} %`)
+            .map(p => `${classTranslations[p.class] || p.class} - Confiance : ${(p.score * 100).toFixed(1)} %`)
             .join('<br>');
 
           ctx.lineWidth = 4;
@@ -155,7 +164,7 @@
           detectedBags.forEach(p => {
             const [x, y, width, height] = p.bbox;
             ctx.strokeRect(x, y, width, height);
-            ctx.fillText(`${p.class} ${(p.score * 100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
+            ctx.fillText(`${classTranslations[p.class] || p.class} ${(p.score * 100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
           });
 
           const now = Date.now();
