@@ -1,14 +1,26 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <title>Détection IA de Valise - Prototype</title>
+  <meta charset="UTF-8" />
+  <title>Détection IA de Valise - Prototype amélioré</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
     body { margin: 0; font-family: sans-serif; text-align: center; background: #fafafa; }
-    video { border: 2px solid #ccc; border-radius: 10px; max-width: 90vw; margin-top: 1em; position: relative; z-index: 1; }
-    #status { font-size: 1.5em; margin-top: 1em; font-weight: bold; }
+    #wrapper {
+      position: relative;
+      display: inline-block;
+      margin-top: 1em;
+    }
+    video {
+      border: 2px solid #ccc;
+      border-radius: 10px;
+      max-width: 90vw;
+      width: 640px;
+      height: 480px;
+      position: relative;
+      z-index: 1;
+    }
     #overlay {
       position: absolute;
       top: 0; left: 0;
@@ -20,24 +32,46 @@
       z-index: 2;
       margin: auto;
     }
-    #wrapper {
-      position: relative;
-      display: inline-block;
+    #status {
+      font-size: 1.5em;
+      margin-top: 1em;
+      font-weight: bold;
+    }
+    #confidence {
+      font-size: 1.2em;
+      margin-top: 0.5em;
+      color: #333;
+    }
+    #snapshot {
+      margin-top: 1em;
+      border: 2px solid #333;
+      border-radius: 10px;
+      max-width: 90vw;
+      width: 320px;
     }
   </style>
 </head>
 <body>
-  <h1>🧠 Démo IA - Détection de valise</h1>
+  <h1>🧠 Démo IA - Détection de valise avec capture</h1>
   <div id="wrapper">
-    <video id="webcam" autoplay muted playsinline width="640" height="480"></video>
+    <video id="webcam" autoplay muted playsinline></video>
     <div id="overlay"></div>
   </div>
   <div id="status">Chargement du modèle...</div>
+  <div id="confidence"></div>
+  <canvas id="canvas" style="display:none;"></canvas>
+  <img id="snapshot" alt="Capture automatique" />
 
   <script>
     const video = document.getElementById('webcam');
     const statusDiv = document.getElementById('status');
+    const confidenceDiv = document.getElementById('confidence');
     const overlay = document.getElementById('overlay');
+    const canvas = document.getElementById('canvas');
+    const snapshotImg = document.getElementById('snapshot');
+
+    let lastCaptured = 0;
+    const captureCooldown = 5000; // 5 secondes entre captures
 
     async function setupCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -47,6 +81,15 @@
       });
     }
 
+    function captureSnapshot() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataURL = canvas.toDataURL('image/png');
+      snapshotImg.src = dataURL;
+    }
+
     async function main() {
       await setupCamera();
       const model = await cocoSsd.load();
@@ -54,15 +97,28 @@
 
       const detect = async () => {
         const predictions = await model.detect(video);
-        const hasSuitcase = predictions.some(p => (p.class === 'suitcase' || p.class === 'backpack') && p.score > 0.6);
+        // Filtrer valise ou sac à dos avec score > 0.6
+        const filtered = predictions.filter(p => (p.class === 'suitcase' || p.class === 'backpack') && p.score > 0.6);
 
-        if (hasSuitcase) {
-          statusDiv.innerHTML = "🧳 <span style='color: green'>Valise détectée !</span>";
+        if (filtered.length > 0) {
+          const best = filtered.reduce((a,b) => (a.score > b.score) ? a : b);
+          statusDiv.innerHTML = `🧳 <span style='color: green'>Valise détectée !</span>`;
+          confidenceDiv.innerHTML = `Confiance : ${(best.score*100).toFixed(1)} %`;
           overlay.style.borderColor = "limegreen";
+
+          // Capture automatique toutes les 5 secondes max
+          const now = Date.now();
+          if (now - lastCaptured > captureCooldown) {
+            captureSnapshot();
+            lastCaptured = now;
+          }
         } else {
-          statusDiv.innerHTML = "🔍 <span style='color: gray'>Aucune valise détectée</span>";
+          statusDiv.innerHTML = `🔍 <span style='color: gray'>Aucune valise détectée</span>`;
+          confidenceDiv.innerHTML = '';
           overlay.style.borderColor = "crimson";
+          snapshotImg.src = ''; // enlever la dernière capture si plus rien
         }
+
         requestAnimationFrame(detect);
       };
 
