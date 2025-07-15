@@ -2,14 +2,13 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Détection Bagage + Reconnaissance Marque (OCR)</title>
+  <title>Détection Bagage avec Repère A4 (forme)</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
   <style>
     body {
       background: #f7f7f7;
-      font-family: Arial, sans-serif;
+      font-family: sans-serif;
       text-align: center;
       padding: 20px;
     }
@@ -32,23 +31,17 @@
       font-size: 1.1em;
       margin-top: 10px;
       font-weight: bold;
-      min-height: 32px;
     }
     #instructions {
       font-style: italic;
       margin-bottom: 10px;
-      max-width: 600px;
-      margin-left: auto;
-      margin-right: auto;
     }
   </style>
 </head>
 <body>
-  <h1>🧳 Détection Bagage + Marque (OCR)</h1>
+  <h1>🧳 Démo Bagage avec repère A4 (forme)</h1>
   <div id="instructions">
-    Placez une <strong>feuille A4 visible</strong> sur fond sombre pour calibrer la taille.<br/>
-    Montrez un bagage avec un logo/label lisible (ex: Eastpak, Delsey) pour reconnaissance OCR.<br/>
-    Patientez quelques secondes pour la lecture OCR.
+    Placez une <strong>feuille A4 bien visible</strong> dans le champ, sur fond sombre. L'IA estimera la taille réelle des objets détectés.
   </div>
   <div id="container">
     <video id="video" autoplay muted playsinline></video>
@@ -65,23 +58,12 @@
     const BAG_CLASSES = ['suitcase', 'backpack', 'handbag'];
     const CONFIDENCE_THRESHOLD = 0.5;
     const A4_WIDTH_CM = 21;
-
-    // Mini base de données bagages
-    const BAG_DATABASE = [
-      { brand: "Eastpak", model: "Tranverz S", type: "suitcase", width: 32.5, height: 51 },
-      { brand: "Delsey", model: "Turenne 55cm", type: "suitcase", width: 35, height: 55 },
-      { brand: "Samsonite", model: "S'Cure Spinner 55", type: "suitcase", width: 40, height: 55 },
-      { brand: "Cabin Max", model: "Metz 44L", type: "backpack", width: 35, height: 50 }
-    ];
+    const A4_RATIO = 21 / 29.7;
 
     let model, pixelPerCm = null;
-    let ocrWorker = null;
-    let lastOcrText = "";
-    let lastOcrTime = 0;
-    const OCR_COOLDOWN = 3000; // 3 sec entre lectures
 
     async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       video.srcObject = stream;
       return new Promise(resolve => {
         video.onloadedmetadata = () => {
@@ -93,7 +75,6 @@
       });
     }
 
-    // Détection d'un grand rectangle blanc proche du ratio A4 pour calibration
     function findBrightestRectangle(imageData) {
       const { data, width, height } = imageData;
       let boxes = [];
@@ -118,6 +99,7 @@
 
       if (boxes.length < 10) return null;
 
+      // Combine bounding box
       let minX = Math.min(...boxes.map(b => b.x));
       let minY = Math.min(...boxes.map(b => b.y));
       let maxX = Math.max(...boxes.map(b => b.x + b.w));
@@ -131,48 +113,6 @@
       if (ratio < 0.6 || ratio > 0.9) return null;
 
       return { x: minX, y: minY, width: widthBox, height: heightBox, ratio };
-    }
-
-    // OCR sur la zone du bagage
-    async function doOcrOnBag(bbox) {
-      if (!ocrWorker) return null;
-      const now = Date.now();
-      if (now - lastOcrTime < OCR_COOLDOWN) return null; // cooldown pour éviter surcharges
-
-      const [x, y, w, h] = bbox;
-      // Extraction patch
-      const imgData = ctx.getImageData(x, y, w, h);
-      const canvasTmp = document.createElement('canvas');
-      canvasTmp.width = w;
-      canvasTmp.height = h;
-      canvasTmp.getContext('2d').putImageData(imgData, 0, 0);
-
-      lastOcrTime = now;
-      const { data: { text } } = await ocrWorker.recognize(canvasTmp);
-      lastOcrText = text.trim().toLowerCase();
-
-      return lastOcrText;
-    }
-
-    // Match taille +/-10% + type bagage
-    function findBestMatch(type, widthCm, heightCm) {
-      for (const bag of BAG_DATABASE) {
-        if (bag.type !== type) continue;
-        const wOk = Math.abs(bag.width - widthCm) / bag.width < 0.1;
-        const hOk = Math.abs(bag.height - heightCm) / bag.height < 0.1;
-        if (wOk && hOk) return bag;
-      }
-      return null;
-    }
-
-    // Cherche un mot clé (marque) dans le texte OCR
-    function findBrandInText(text) {
-      if (!text) return null;
-      const brands = BAG_DATABASE.map(b => b.brand.toLowerCase());
-      for (const brand of brands) {
-        if (text.includes(brand)) return brand;
-      }
-      return null;
     }
 
     async function detectFrame() {
@@ -198,10 +138,10 @@
       const predictions = await model.detect(video);
       let foundBag = false;
 
-      for (const pred of predictions) {
+      predictions.forEach(pred => {
         if (BAG_CLASSES.includes(pred.class) && pred.score > CONFIDENCE_THRESHOLD) {
-          foundBag = true;
           const [x, y, w, h] = pred.bbox;
+          foundBag = true;
 
           ctx.strokeStyle = "orange";
           ctx.lineWidth = 2;
@@ -218,39 +158,14 @@
             ctx.fillText(`~${widthCm}cm × ${heightCm}cm`, x + 4, y + h + 16);
             ctx.fillText(ok ? "✅ Cabine OK" : "❌ Trop grand", x + 4, y + h + 32);
 
-            // OCR & matching
-            const ocrText = await doOcrOnBag(pred.bbox);
-            let brandDetected = null;
-            if (ocrText) brandDetected = findBrandInText(ocrText);
-
-            let match = null;
-            if (brandDetected) {
-              match = BAG_DATABASE.find(b => b.brand.toLowerCase() === brandDetected);
-            } else {
-              match = findBestMatch(pred.class, parseFloat(widthCm), parseFloat(heightCm));
-            }
-
-            if (match) {
-              ctx.fillStyle = "#0055aa";
-              ctx.fillText(`🔍 Modèle estimé : ${match.brand} ${match.model}`, x + 4, y + h + 48);
-              statusEl.textContent = ok
-                ? `✅ Bagage OK: ${widthCm}×${heightCm}cm - Modèle estimé : ${match.brand} ${match.model}`
-                : `❌ Trop grand : ${widthCm}×${heightCm}cm - Modèle estimé : ${match.brand} ${match.model}`;
-            } else if (brandDetected) {
-              ctx.fillStyle = "#0055aa";
-              ctx.fillText(`🔍 Marque détectée : ${brandDetected}`, x + 4, y + h + 48);
-              statusEl.textContent = `✅ Marque détectée : ${brandDetected} - Taille : ${widthCm}×${heightCm}cm`;
-            } else {
-              statusEl.textContent = ok
-                ? `✅ Bagage OK: ${widthCm}×${heightCm}cm - Modèle non reconnu`
-                : `❌ Trop grand : ${widthCm}×${heightCm}cm - Modèle non reconnu`;
-            }
+            statusEl.textContent = ok
+              ? `✅ Bagage OK : ${widthCm}×${heightCm}cm`
+              : `❌ Trop grand : ${widthCm}×${heightCm}cm`;
           } else {
             statusEl.textContent = "🕵️‍♂️ A4 non détectée — calibration impossible";
           }
-          break; // On affiche un seul bagage à la fois pour la clarté
         }
-      }
+      });
 
       if (!foundBag) {
         statusEl.textContent = "❌ Aucun bagage détecté";
@@ -262,17 +177,7 @@
     async function main() {
       await setupCamera();
       model = await cocoSsd.load();
-      statusEl.textContent = "Modèle chargé, initialisation OCR...";
-      ocrWorker = Tesseract.createWorker({
-        logger: m => {
-          // console.log(m);
-          if (m.status === "recognizing text") statusEl.textContent = `OCR: ${Math.round(m.progress * 100)}%`;
-        }
-      });
-      await ocrWorker.load();
-      await ocrWorker.loadLanguage('eng');
-      await ocrWorker.initialize('eng');
-      statusEl.textContent = "Modèle chargé, détection en cours...";
+      statusEl.textContent = "Modèle chargé. Calibration en cours...";
       detectFrame();
     }
 
