@@ -1,396 +1,182 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <title>Détection Bagage IA - Démo Optimisée</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-  <style>
-    /* Reset & basics */
-    * {
-      box-sizing: border-box;
-    }
-    body {
-      margin: 0;
-      background: #f4f7fb;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      color: #333;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-height: 100vh;
-      padding: 20px;
-    }
-    h1 {
-      margin-bottom: 0.3em;
-      color: #1a73e8;
-      font-weight: 700;
-      text-align: center;
-    }
-
-    /* Container */
-    #container {
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 8px 24px rgba(26, 115, 232, 0.15);
-      max-width: 720px;
-      width: 100%;
-      padding: 20px 30px 30px 30px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-
-    /* Controls */
-    #controls {
-      width: 100%;
-      display: flex;
-      justify-content: center;
-      gap: 1em;
-      margin-bottom: 20px;
-    }
-    select, button {
-      padding: 10px 16px;
-      font-size: 1rem;
-      border-radius: 8px;
-      border: 1.5px solid #ddd;
-      outline-offset: 2px;
-      transition: all 0.2s ease;
-      cursor: pointer;
-      min-width: 150px;
-      background: white;
-    }
-    select:focus, button:focus {
-      border-color: #1a73e8;
-      box-shadow: 0 0 6px #1a73e8aa;
-    }
-    button {
-      background: #1a73e8;
-      color: white;
-      border: none;
-      font-weight: 600;
-    }
-    button:hover:not(:disabled) {
-      background: #155ab6;
-    }
-    button:disabled {
-      background: #aac5f9;
-      cursor: not-allowed;
-    }
-
-    /* Video and canvas wrapper */
-    #wrapper {
-      position: relative;
-      width: 640px;
-      max-width: 90vw;
-      border-radius: 14px;
-      overflow: hidden;
-      box-shadow: 0 4px 18px rgba(0,0,0,0.1);
-      background: black;
-    }
-    video, canvas {
-      display: block;
-      width: 100%;
-      height: auto;
-    }
-    canvas {
-      position: absolute;
-      top: 0; left: 0;
-      pointer-events: none;
-    }
-
-    /* Status */
-    #status {
-      margin-top: 15px;
-      font-size: 1.25rem;
-      font-weight: 600;
-      min-height: 1.5em;
-      color: #444;
-    }
-
-    /* Detections list */
-    #detectionsList {
-      margin-top: 20px;
-      width: 100%;
-      max-height: 160px;
-      overflow-y: auto;
-      border: 1px solid #ddd;
-      border-radius: 10px;
-      padding: 12px 18px;
-      background: #f9fbff;
-      font-size: 1rem;
-      color: #222;
-      box-shadow: inset 0 0 5px #d0d8e6;
-      line-height: 1.4;
-    }
-    #detectionsList div {
-      margin-bottom: 8px;
-      font-weight: 600;
-      padding-bottom: 4px;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    #detectionsList div:last-child {
-      border-bottom: none;
-      margin-bottom: 0;
-      padding-bottom: 0;
-    }
-
-    /* Snapshot */
-    #snapshot {
-      margin-top: 20px;
-      width: 320px;
-      max-width: 90vw;
-      border-radius: 12px;
-      box-shadow: 0 4px 16px rgba(26, 115, 232, 0.3);
-      border: 3px solid #1a73e8;
-      background: white;
-      display: none;
-    }
-
-    /* Scrollbar detection list */
-    #detectionsList::-webkit-scrollbar {
-      width: 8px;
-    }
-    #detectionsList::-webkit-scrollbar-thumb {
-      background: #a0b9f9;
-      border-radius: 4px;
-    }
-
-  </style>
+<meta charset="UTF-8" />
+<title>Détection bagage IA - Version fonctionnelle</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f0f0f0;
+    margin: 20px;
+    text-align: center;
+  }
+  #video-container {
+    position: relative;
+    display: inline-block;
+  }
+  video, canvas {
+    border-radius: 10px;
+    width: 640px;
+    height: 480px;
+  }
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    pointer-events: none;
+  }
+  #status {
+    margin-top: 10px;
+    font-weight: bold;
+  }
+  #detections {
+    max-width: 640px;
+    margin: 10px auto;
+    background: white;
+    padding: 10px;
+    border-radius: 8px;
+    height: 120px;
+    overflow-y: auto;
+    text-align: left;
+  }
+</style>
 </head>
 <body>
-  <h1>🧳 Détection Bagage IA - Démo Optimisée</h1>
-  <div id="container">
-    <div id="controls">
-      <select id="cameraSelect" aria-label="Choisir caméra"></select>
-      <button id="startButton">Démarrer la caméra</button>
-    </div>
 
-    <div id="wrapper">
-      <video id="webcam" autoplay muted playsinline></video>
-      <canvas id="overlay"></canvas>
-    </div>
+<h1>Détection Bagage IA</h1>
 
-    <div id="status">Modèle non chargé</div>
+<div>
+  <select id="cameraSelect"></select>
+  <button id="startBtn">Démarrer caméra</button>
+</div>
 
-    <div id="detectionsList" aria-live="polite" aria-atomic="true"></div>
+<div id="video-container">
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="canvas"></canvas>
+</div>
 
-    <img id="snapshot" alt="Capture automatique" />
-  </div>
+<div id="status">Modèle non chargé</div>
+<div id="detections"></div>
 
-  <script>
-    const video = document.getElementById('webcam');
-    const canvas = document.getElementById('overlay');
-    const ctx = canvas.getContext('2d');
-    const statusDiv = document.getElementById('status');
-    const detectionsList = document.getElementById('detectionsList');
-    const snapshotImg = document.getElementById('snapshot');
-    const cameraSelect = document.getElementById('cameraSelect');
-    const startButton = document.getElementById('startButton');
+<script>
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const status = document.getElementById('status');
+  const detectionsDiv = document.getElementById('detections');
+  const cameraSelect = document.getElementById('cameraSelect');
+  const startBtn = document.getElementById('startBtn');
 
-    let model = null;
-    let detectRunning = false;
-    let lastCaptured = 0;
-    const captureCooldown = 5000; // 5 secondes entre captures
-    const bagClasses = ['suitcase', 'backpack', 'handbag'];
-    const confidenceThreshold = 0.5;
+  let model;
+  let stream;
+  let detectionInterval;
+  const bagClasses = ['suitcase', 'backpack', 'handbag'];
+  const confidenceThreshold = 0.5;
 
-    const classTranslations = {
-      'suitcase': 'valise',
-      'backpack': 'sac à dos',
-      'handbag': 'sac à main',
-    };
-
-    let stream = null;
-
-    // Stockage des scores pour moyenne glissante (clé: objet détecté, valeur: tableau des scores)
-    const detectionHistory = {};
-
-    // Fonction pour générer une clé unique pour un objet détecté (classe + position arrondie)
-    function getDetectionKey(detection) {
-      const x = Math.round(detection.bbox[0] / 20);
-      const y = Math.round(detection.bbox[1] / 20);
-      return `${detection.class}_${x}_${y}`;
-    }
-
-    // Gabarit visuel : taille max autorisée en pixels (ajuste selon besoin)
-    const maxWidthAllowed = 300;  // largeur max en px
-    const maxHeightAllowed = 400; // hauteur max en px
-
-    async function listCameras() {
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(d => d.kind === 'videoinput');
-        cameraSelect.innerHTML = '';
-        videoDevices.forEach((device, i) => {
-          const option = document.createElement('option');
-          option.value = device.deviceId;
-          option.text = device.label || `Caméra ${i + 1}`;
-          cameraSelect.appendChild(option);
-        });
-      } catch (e) {
-        alert('Erreur lors de la récupération des caméras : ' + e.message);
-      }
-    }
-
-    async function startCamera(deviceId) {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: deviceId ? { exact: deviceId } : undefined }
-        });
-        video.srcObject = stream;
-        await new Promise(resolve => (video.onloadedmetadata = resolve));
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-      } catch (e) {
-        alert('Erreur lors de l\'accès à la caméra : ' + e.message);
-      }
-    }
-
-    async function loadModel() {
-      statusDiv.innerText = 'Chargement du modèle...';
-      model = await cocoSsd.load();
-      statusDiv.innerText = 'Modèle chargé ✅';
-      startButton.disabled = false;
-    }
-
-    function drawTemplate() {
-      // cadre semi-transparent au centre pour taille max autorisée
-      const x = (canvas.width - maxWidthAllowed) / 2;
-      const y = (canvas.height - maxHeightAllowed) / 2;
-      ctx.save();
-      ctx.strokeStyle = '#1a73e8';
-      ctx.lineWidth = 3;
-      ctx.setLineDash([12, 6]);
-      ctx.strokeRect(x, y, maxWidthAllowed, maxHeightAllowed);
-      ctx.restore();
-
-      ctx.save();
-      ctx.font = '16px "Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
-      ctx.fillStyle = '#1a73e8';
-      ctx.fillText('Taille max autorisée', x + 12, y - 12);
-      ctx.restore();
-    }
-
-    async function detect() {
-      if (!model) return;
-      detectRunning = true;
-
-      async function frame() {
-        if (!detectRunning) return;
-
-        const predictions = await model.detect(video);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        drawTemplate();
-
-        // Filtrage par classe et seuil confiance
-        const detectedBagsRaw = predictions.filter(p => bagClasses.includes(p.class) && p.score > confidenceThreshold);
-
-        // Mise à jour detectionHistory + moyenne glissante
-        const detectedBags = detectedBagsRaw.map(detection => {
-          const key = getDetectionKey(detection);
-          if (!detectionHistory[key]) detectionHistory[key] = [];
-          detectionHistory[key].push(detection.score);
-          if (detectionHistory[key].length > 5) detectionHistory[key].shift();
-
-          const avgScore = detectionHistory[key].reduce((a, b) => a + b, 0) / detectionHistory[key].length;
-          return { ...detection, avgScore };
-        });
-
-        if (detectedBags.length > 0) {
-          // Vérification taille bbox vs max autorisée
-          let validCount = 0;
-          let invalidCount = 0;
-
-          detectionsList.innerHTML = '';
-
-          detectedBags.forEach(p => {
-            const [x, y, width, height] = p.bbox;
-
-            // Vérifier si bagage dans le cadre max autorisé
-            const isValid = width <= maxWidthAllowed && height <= maxHeightAllowed;
-
-            if (isValid) validCount++; else invalidCount++;
-
-            // Couleur selon validité et confiance
-            let color = '#d93025'; // rouge Google red
-            if (isValid && p.avgScore > 0.75) color = '#188038'; // vert Google green
-            else if (isValid) color = '#fbbc04'; // orange Google yellow
-
-            // Dessiner bbox
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = color;
-            ctx.font = '18px "Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
-            ctx.fillStyle = color;
-            ctx.strokeRect(x, y, width, height);
-            ctx.fillText(
-              `${classTranslations[p.class] || p.class} ${(p.avgScore * 100).toFixed(1)}%`,
-              x,
-              y > 20 ? y - 5 : y + 20
-            );
-
-            // Ajouter au listing texte
-            detectionsList.innerHTML += `<div style="color:${color}">
-              ${classTranslations[p.class] || p.class} — Confiance : ${(p.avgScore * 100).toFixed(1)}% — 
-              Taille : ${Math.round(width)}×${Math.round(height)} px — 
-              ${isValid ? '✅ Taille OK' : '❌ Trop grand'}
-              </div>`;
-          });
-
-          statusDiv.innerHTML = `🧳 Bagages détectés : <span style="color:#188038">${validCount}</span> valides, <span style="color:#d93025">${invalidCount}</span> non valides`;
-
-          // Capture automatique si au moins un bagage valide détecté
-          const now = Date.now();
-          if (validCount > 0 && now - lastCaptured > captureCooldown) {
-            captureSnapshot();
-            lastCaptured = now;
-            snapshotImg.style.display = 'block';
-          }
-
-        } else {
-          statusDiv.innerHTML = `🔍 <span style="color: #666">Aucun bagage détecté</span>`;
-          detectionsList.innerHTML = '';
-          snapshotImg.src = '';
-          snapshotImg.style.display = 'none';
-        }
-
-        requestAnimationFrame(frame);
-      }
-
-      frame();
-    }
-
-    function captureSnapshot() {
-      const snapshotCanvas = document.createElement('canvas');
-      snapshotCanvas.width = video.videoWidth;
-      snapshotCanvas.height = video.videoHeight;
-      const snapshotCtx = snapshotCanvas.getContext('2d');
-      snapshotCtx.drawImage(video, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
-      snapshotImg.src = snapshotCanvas.toDataURL('image/png');
-    }
-
-    startButton.onclick = async () => {
-      detectRunning = false; // stop detection if running
-      startButton.disabled = true;
-      await startCamera(cameraSelect.value);
-      if (!model) await loadModel();
-      detect();
-      startButton.disabled = false;
-    };
-
-    // Initialisation : liste des caméras au chargement
-    window.addEventListener('load', () => {
-      startButton.disabled = true;
-      listCameras().then(() => {
-        startButton.disabled = false;
-      });
-      loadModel();
+  async function setupCameras() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(d => d.kind === 'videoinput');
+    cameraSelect.innerHTML = '';
+    videoDevices.forEach((device, i) => {
+      const option = document.createElement('option');
+      option.value = device.deviceId;
+      option.text = device.label || `Caméra ${i + 1}`;
+      cameraSelect.appendChild(option);
     });
+  }
 
-  </script>
+  async function startCamera() {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: cameraSelect.value ? { exact: cameraSelect.value } : undefined }
+      });
+      video.srcObject = stream;
+      await new Promise(resolve => (video.onloadedmetadata = resolve));
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    } catch (err) {
+      alert('Erreur accès caméra : ' + err.message);
+    }
+  }
+
+  async function loadModel() {
+    status.textContent = 'Chargement du modèle...';
+    model = await cocoSsd.load();
+    status.textContent = 'Modèle chargé ✅';
+  }
+
+  function drawTemplate() {
+    const maxWidth = 300;
+    const maxHeight = 400;
+    const x = (canvas.width - maxWidth) / 2;
+    const y = (canvas.height - maxHeight) / 2;
+    ctx.save();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#1a73e8';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10,5]);
+    ctx.strokeRect(x, y, maxWidth, maxHeight);
+    ctx.font = '16px Arial';
+    ctx.fillStyle = '#1a73e8';
+    ctx.fillText('Taille max autorisée', x + 10, y - 10);
+    ctx.restore();
+  }
+
+  async function detect() {
+    if (!model) return;
+    drawTemplate();
+
+    const predictions = await model.detect(video);
+    drawTemplate();
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawTemplate();
+
+    let detectedBags = predictions.filter(p => bagClasses.includes(p.class) && p.score > confidenceThreshold);
+
+    detectionsDiv.innerHTML = '';
+
+    detectedBags.forEach(pred => {
+      const [x, y, w, h] = pred.bbox;
+      const maxWidthAllowed = 300;
+      const maxHeightAllowed = 400;
+      const isValid = w <= maxWidthAllowed && h <= maxHeightAllowed;
+
+      ctx.strokeStyle = isValid ? 'limegreen' : 'red';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(x, y, w, h);
+      ctx.font = '18px Arial';
+      ctx.fillStyle = isValid ? 'limegreen' : 'red';
+      ctx.fillText(`${pred.class} ${(pred.score*100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
+
+      detectionsDiv.innerHTML += `<div style="color:${isValid ? 'green' : 'red'}">
+        ${pred.class} - Confiance : ${(pred.score*100).toFixed(1)}% - Taille: ${Math.round(w)}x${Math.round(h)} - ${isValid ? '✅ OK' : '❌ Trop grand'}
+      </div>`;
+    });
+  }
+
+  startBtn.onclick = async () => {
+    startBtn.disabled = true;
+    await startCamera();
+    if (!model) {
+      await loadModel();
+    }
+    status.textContent = 'Détection en cours...';
+
+    if (detectionInterval) clearInterval(detectionInterval);
+    detectionInterval = setInterval(detect, 200); // 5fps
+
+    startBtn.disabled = false;
+  };
+
+  window.onload = () => {
+    setupCameras();
+  };
+</script>
+
 </body>
 </html>
