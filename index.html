@@ -7,18 +7,37 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
     body { margin: 0; font-family: sans-serif; text-align: center; background: #fafafa; }
-    video { border: 2px solid #ccc; border-radius: 10px; max-width: 90vw; margin-top: 1em; }
+    video { border: 2px solid #ccc; border-radius: 10px; max-width: 90vw; margin-top: 1em; position: relative; z-index: 1; }
     #status { font-size: 1.5em; margin-top: 1em; font-weight: bold; }
+    #overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 640px;
+      height: 480px;
+      border-radius: 10px;
+      pointer-events: none;
+      border: 6px solid transparent;
+      z-index: 2;
+      margin: auto;
+    }
+    #wrapper {
+      position: relative;
+      display: inline-block;
+    }
   </style>
 </head>
 <body>
   <h1>🧠 Démo IA - Détection de valise</h1>
-  <video id="webcam" autoplay muted playsinline width="640" height="480"></video>
+  <div id="wrapper">
+    <video id="webcam" autoplay muted playsinline width="640" height="480"></video>
+    <div id="overlay"></div>
+  </div>
   <div id="status">Chargement du modèle...</div>
 
   <script>
     const video = document.getElementById('webcam');
     const statusDiv = document.getElementById('status');
+    const overlay = document.getElementById('overlay');
 
     async function setupCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -35,11 +54,14 @@
 
       const detect = async () => {
         const predictions = await model.detect(video);
-        const hasSuitcase = predictions.some(p => p.class === 'suitcase' && p.score > 0.6);
+        const hasSuitcase = predictions.some(p => (p.class === 'suitcase' || p.class === 'backpack') && p.score > 0.6);
+
         if (hasSuitcase) {
           statusDiv.innerHTML = "🧳 <span style='color: green'>Valise détectée !</span>";
+          overlay.style.borderColor = "limegreen";
         } else {
           statusDiv.innerHTML = "🔍 <span style='color: gray'>Aucune valise détectée</span>";
+          overlay.style.borderColor = "crimson";
         }
         requestAnimationFrame(detect);
       };
