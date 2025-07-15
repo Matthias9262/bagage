@@ -2,25 +2,43 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Test Détection Bagage + Feuille A4</title>
+  <title>Test Bagage OUIGO</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
-    body { font-family: sans-serif; text-align: center; background: #f0f0f0; padding: 20px; }
-    #container { position: relative; display: inline-block; }
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background: #f4f4f4;
+      padding: 20px;
+    }
+    #container {
+      position: relative;
+      display: inline-block;
+    }
     video, canvas {
-      width: 640px; height: 480px; border-radius: 10px;
+      width: 640px;
+      height: 480px;
+      border-radius: 10px;
     }
     canvas {
       position: absolute;
       top: 0;
       left: 0;
     }
-    #status { margin-top: 10px; font-weight: bold; }
+    #status {
+      margin-top: 15px;
+      font-size: 1.2em;
+      font-weight: bold;
+      color: #333;
+    }
+    .ok { color: green; }
+    .not-ok { color: red; }
   </style>
 </head>
 <body>
-  <h1>🎒 Test Détection Bagage + A4</h1>
+  <h1>🧳 Détection Bagage & Validation OUIGO</h1>
+  <p>Placez une feuille A4 visible dans le cadre pour calibrer les dimensions.</p>
   <div id="container">
     <video id="video" autoplay muted playsinline></video>
     <canvas id="canvas"></canvas>
@@ -33,7 +51,11 @@
     const ctx = canvas.getContext("2d");
     const statusEl = document.getElementById("status");
 
+    const A4_WIDTH_CM = 21; // cm
+    let pixelPerCm = null;
     let model = null;
+
+    const BAG_CLASSES = ['suitcase', 'backpack', 'handbag'];
 
     async function setupCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -90,6 +112,10 @@
       return null;
     }
 
+    function isOuigoCompatible(widthCm, heightCm) {
+      return widthCm <= 55 && heightCm <= 35;
+    }
+
     async function detectFrame() {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -100,29 +126,53 @@
         ctx.strokeStyle = "blue";
         ctx.lineWidth = 3;
         ctx.strokeRect(a4.x, a4.y, a4.width, a4.height);
-        ctx.font = "16px Arial";
         ctx.fillStyle = "blue";
         ctx.fillText("Feuille A4 détectée", a4.x + 5, a4.y - 10);
+        pixelPerCm = a4.width / A4_WIDTH_CM;
+      } else {
+        pixelPerCm = null;
+        ctx.fillStyle = "gray";
+        ctx.fillText("⚠️ Feuille A4 non détectée", 10, 20);
       }
 
-      // Détection COCO-SSD
+      // Détection bagage
       const predictions = await model.detect(video);
-      let detected = false;
-      predictions.forEach(pred => {
-        if (["suitcase", "backpack", "handbag"].includes(pred.class) && pred.score > 0.5) {
-          detected = true;
+      let bagDetected = false;
+
+      for (const pred of predictions) {
+        if (BAG_CLASSES.includes(pred.class) && pred.score > 0.5) {
+          bagDetected = true;
           const [x, y, w, h] = pred.bbox;
+
           ctx.strokeStyle = "orange";
           ctx.lineWidth = 2;
           ctx.strokeRect(x, y, w, h);
           ctx.fillStyle = "black";
           ctx.fillText(`${pred.class} ${(pred.score * 100).toFixed(1)}%`, x + 4, y - 4);
-        }
-      });
 
-      statusEl.textContent = detected
-        ? "✅ Bagage détecté"
-        : "🔍 En attente de bagage...";
+          if (pixelPerCm) {
+            const widthCm = (w / pixelPerCm).toFixed(1);
+            const heightCm = (h / pixelPerCm).toFixed(1);
+            const ok = isOuigoCompatible(widthCm, heightCm);
+
+            ctx.fillStyle = ok ? "green" : "red";
+            ctx.fillText(`~${widthCm} cm × ${heightCm} cm`, x + 4, y + h + 16);
+            ctx.fillText(ok ? "✅ OUIGO : format OK" : "❌ Trop grand pour OUIGO", x + 4, y + h + 32);
+
+            statusEl.innerHTML = ok
+              ? `<span class="ok">✅ Bagage accepté en cabine OUIGO (${widthCm}×${heightCm} cm)</span>`
+              : `<span class="not-ok">❌ Bagage trop grand pour OUIGO (${widthCm}×${heightCm} cm)</span>`;
+          } else {
+            statusEl.textContent = "🕵️ Calibration en attente (A4 non détectée)";
+          }
+
+          break;
+        }
+      }
+
+      if (!bagDetected) {
+        statusEl.textContent = "🔍 En attente d’un bagage...";
+      }
 
       requestAnimationFrame(detectFrame);
     }
