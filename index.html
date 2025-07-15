@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Détection IA - Toutes les valises/sacs détectés</title>
+  <title>Détection IA - Caméra arrière prioritaire</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
@@ -55,7 +55,7 @@
   </style>
 </head>
 <body>
-  <h1>🧠 Détection IA - Valises/Sacs détectés</h1>
+  <h1>🧠 Détection IA - Caméra arrière prioritaire</h1>
   <div id="wrapper">
     <video id="webcam" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
@@ -77,11 +77,22 @@
     const bagClasses = ['suitcase', 'backpack', 'handbag'];
 
     async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
-      return new Promise(resolve => {
-        video.onloadedmetadata = () => resolve(video);
-      });
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: { exact: "environment" } } 
+        });
+        video.srcObject = stream;
+        return new Promise(resolve => {
+          video.onloadedmetadata = () => resolve(video);
+        });
+      } catch (e) {
+        console.warn("Caméra arrière non disponible, utilisation caméra frontale");
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        return new Promise(resolve => {
+          video.onloadedmetadata = () => resolve(video);
+        });
+      }
     }
 
     function captureSnapshot() {
@@ -110,12 +121,10 @@
         if (detectedBags.length > 0) {
           statusDiv.innerHTML = `🧳 <span style='color: green'>Bagages détectés : ${detectedBags.length}</span>`;
 
-          // Afficher la liste des objets détectés
           detectionsList.innerHTML = detectedBags.map(p => 
             `${p.class} - Confiance : ${(p.score*100).toFixed(1)} %`
           ).join('<br>');
 
-          // Dessiner rectangles autour de chaque bagage détecté
           ctx.lineWidth = 4;
           ctx.strokeStyle = 'limegreen';
           ctx.font = '18px Arial';
@@ -127,13 +136,11 @@
             ctx.fillText(`${p.class} ${(p.score*100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
           });
 
-          // Capture automatique max toutes les 5 secondes
           const now = Date.now();
           if (now - lastCaptured > captureCooldown) {
             captureSnapshot();
             lastCaptured = now;
           }
-
         } else {
           statusDiv.innerHTML = `🔍 <span style='color: gray'>Aucun bagage détecté</span>`;
           detectionsList.innerHTML = '';
