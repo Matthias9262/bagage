@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Détection IA de Valise - Prototype amélioré</title>
+  <title>Détection IA avec cadre visuel</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
@@ -28,7 +28,6 @@
       height: 480px;
       border-radius: 10px;
       pointer-events: none;
-      border: 6px solid transparent;
       z-index: 2;
       margin: auto;
     }
@@ -52,26 +51,26 @@
   </style>
 </head>
 <body>
-  <h1>🧠 Démo IA - Détection de valise avec capture</h1>
+  <h1>🧠 Détection IA - Cadre visuel & capture automatique</h1>
   <div id="wrapper">
     <video id="webcam" autoplay muted playsinline></video>
-    <div id="overlay"></div>
+    <canvas id="overlay"></canvas>
   </div>
   <div id="status">Chargement du modèle...</div>
   <div id="confidence"></div>
-  <canvas id="canvas" style="display:none;"></canvas>
   <img id="snapshot" alt="Capture automatique" />
 
   <script>
     const video = document.getElementById('webcam');
     const statusDiv = document.getElementById('status');
     const confidenceDiv = document.getElementById('confidence');
-    const overlay = document.getElementById('overlay');
-    const canvas = document.getElementById('canvas');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
     const snapshotImg = document.getElementById('snapshot');
 
     let lastCaptured = 0;
     const captureCooldown = 5000; // 5 secondes entre captures
+    const bagClasses = ['suitcase', 'backpack', 'handbag'];
 
     async function setupCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -82,29 +81,47 @@
     }
 
     function captureSnapshot() {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataURL = canvas.toDataURL('image/png');
-      snapshotImg.src = dataURL;
+      const snapshotCanvas = document.createElement('canvas');
+      snapshotCanvas.width = video.videoWidth;
+      snapshotCanvas.height = video.videoHeight;
+      const snapshotCtx = snapshotCanvas.getContext('2d');
+      snapshotCtx.drawImage(video, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+      snapshotImg.src = snapshotCanvas.toDataURL('image/png');
     }
 
     async function main() {
       await setupCamera();
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
       const model = await cocoSsd.load();
       statusDiv.innerText = "Modèle chargé ✅. Analyse en cours...";
 
-      const detect = async () => {
+      async function detect() {
         const predictions = await model.detect(video);
-        // Filtrer valise ou sac à dos avec score > 0.6
-        const filtered = predictions.filter(p => (p.class === 'suitcase' || p.class === 'backpack') && p.score > 0.6);
 
-        if (filtered.length > 0) {
-          const best = filtered.reduce((a,b) => (a.score > b.score) ? a : b);
-          statusDiv.innerHTML = `🧳 <span style='color: green'>Valise détectée !</span>`;
+        // Effacer le canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Filtrer bagages détectés
+        const detectedBags = predictions.filter(p => bagClasses.includes(p.class) && p.score > 0.6);
+
+        if (detectedBags.length > 0) {
+          // On prend le meilleur score
+          const best = detectedBags.reduce((a,b) => (a.score > b.score) ? a : b);
+
+          statusDiv.innerHTML = `🧳 <span style='color: green'>Bagage détecté : ${best.class}</span>`;
           confidenceDiv.innerHTML = `Confiance : ${(best.score*100).toFixed(1)} %`;
-          overlay.style.borderColor = "limegreen";
+
+          // Dessiner un rectangle autour de l'objet détecté
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = 'limegreen';
+          ctx.font = '18px Arial';
+          ctx.fillStyle = 'limegreen';
+
+          const [x, y, width, height] = best.bbox;
+          ctx.strokeRect(x, y, width, height);
+          ctx.fillText(`${best.class} ${(best.score*100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
 
           // Capture automatique toutes les 5 secondes max
           const now = Date.now();
@@ -113,14 +130,14 @@
             lastCaptured = now;
           }
         } else {
-          statusDiv.innerHTML = `🔍 <span style='color: gray'>Aucune valise détectée</span>`;
+          statusDiv.innerHTML = `🔍 <span style='color: gray'>Aucun bagage détecté</span>`;
           confidenceDiv.innerHTML = '';
-          overlay.style.borderColor = "crimson";
-          snapshotImg.src = ''; // enlever la dernière capture si plus rien
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          snapshotImg.src = ''; // Effacer capture si plus rien
         }
 
         requestAnimationFrame(detect);
-      };
+      }
 
       detect();
     }
