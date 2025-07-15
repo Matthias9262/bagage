@@ -1,29 +1,25 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <title>Démo IA Bagage - Gabarit Cabine</title>
+  <meta charset="UTF-8" />
+  <title>Détection Bagage - Calibration A4</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
     body {
-      background: #f9f9f9;
-      font-family: sans-serif;
+      font-family: Arial, sans-serif;
+      background: #f7f7f7;
       text-align: center;
-      margin: 0;
       padding: 20px;
-    }
-    h1 {
-      color: #1a73e8;
-    }
-    video, canvas {
-      border-radius: 12px;
-      width: 640px;
-      height: 480px;
     }
     #container {
       position: relative;
       display: inline-block;
+    }
+    video, canvas {
+      border-radius: 10px;
+      width: 640px;
+      height: 480px;
     }
     canvas {
       position: absolute;
@@ -31,20 +27,22 @@
       left: 0;
     }
     #status {
-      margin-top: 10px;
       font-size: 1.2em;
-      font-weight: bold;
-    }
-    #note {
       margin-top: 10px;
+    }
+    #instructions {
       font-style: italic;
       color: #555;
+      margin: 10px auto;
+      max-width: 600px;
     }
   </style>
 </head>
 <body>
-  <h1>🧳 Détection Bagage - Gabarit Cabine</h1>
-  <div id="note">Positionnez-vous à environ <strong>1 mètre</strong> de la caméra pour une estimation réaliste.</div>
+  <h1>📏 Démo Bagage + Calibration A4</h1>
+  <div id="instructions">
+    Placez une <strong>feuille A4 blanche (21 cm de large)</strong> bien visible dans le champ de la caméra. La taille réelle du bagage sera estimée par rapport à cette feuille.
+  </div>
   <div id="container">
     <video id="video" autoplay muted playsinline></video>
     <canvas id="canvas"></canvas>
@@ -59,28 +57,11 @@
 
     let model;
 
-    const BAG_CLASSES = ['suitcase', 'backpack', 'handbag'];
+    const BAG_CLASSES = ["suitcase", "backpack", "handbag"];
     const CONFIDENCE_THRESHOLD = 0.5;
+    const A4_WIDTH_CM = 21;
 
-    // Gabarit cabine approximatif en pixels à 1 mètre (~55x35 cm visuellement ici)
-    const GABARIT = {
-      width: 250,
-      height: 400
-    };
-
-    function drawGabarit() {
-      const x = (canvas.width - GABARIT.width) / 2;
-      const y = (canvas.height - GABARIT.height) / 2;
-
-      ctx.strokeStyle = '#1a73e8';
-      ctx.lineWidth = 3;
-      ctx.setLineDash([10, 6]);
-      ctx.strokeRect(x, y, GABARIT.width, GABARIT.height);
-
-      ctx.font = "16px Arial";
-      ctx.fillStyle = '#1a73e8';
-      ctx.fillText("Gabarit cabine (55×35×25 cm)", x + 10, y - 10);
-    }
+    let pixelPerCm = null;
 
     async function setupCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -96,48 +77,85 @@
       });
     }
 
+    function estimateWhiteRectangle(imageData) {
+      const { data, width, height } = imageData;
+      let minX = width, minY = height, maxX = 0, maxY = 0;
+      let count = 0;
+
+      for (let y = 0; y < height; y += 2) {
+        for (let x = 0; x < width; x += 2) {
+          const index = (y * width + x) * 4;
+          const r = data[index], g = data[index + 1], b = data[index + 2];
+          if (r > 220 && g > 220 && b > 220) {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+            count++;
+          }
+        }
+      }
+
+      const threshold = (width * height) / 100; // doit représenter au moins 1% de l’image
+      if (count < threshold) return null;
+
+      const boxWidth = maxX - minX;
+      const boxHeight = maxY - minY;
+
+      return { x: minX, y: minY, width: boxWidth, height: boxHeight };
+    }
+
     async function detectFrame() {
-      const predictions = await model.detect(video);
-
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawGabarit();
 
-      let foundBag = false;
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const a4Rect = estimateWhiteRectangle(imageData);
 
-      predictions.forEach(pred => {
+      if (a4Rect) {
+        ctx.strokeStyle = "blue";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(a4Rect.x, a4Rect.y, a4Rect.width, a4Rect.height);
+        ctx.font = "14px Arial";
+        ctx.fillStyle = "blue";
+        ctx.fillText("Référence A4", a4Rect.x, a4Rect.y - 5);
+
+        pixelPerCm = a4Rect.width / A4_WIDTH_CM;
+      } else {
+        pixelPerCm = null;
+        ctx.font = "16px Arial";
+        ctx.fillStyle = "gray";
+        ctx.fillText("A4 non détectée", 10, 20);
+      }
+
+      const predictions = await model.detect(video);
+      let found = false;
+
+      predictions.forEach((pred) => {
         if (BAG_CLASSES.includes(pred.class) && pred.score > CONFIDENCE_THRESHOLD) {
-          foundBag = true;
-          const [x, y, width, height] = pred.bbox;
+          const [x, y, w, h] = pred.bbox;
 
-          // Check if it fits the gabarit
-          const centerX = x + width / 2;
-          const centerY = y + height / 2;
-          const fitsWidth = width <= GABARIT.width;
-          const fitsHeight = height <= GABARIT.height;
-          const isInside =
-            fitsWidth &&
-            fitsHeight &&
-            centerX > (canvas.width - GABARIT.width) / 2 &&
-            centerX < (canvas.width + GABARIT.width) / 2 &&
-            centerY > (canvas.height - GABARIT.height) / 2 &&
-            centerY < (canvas.height + GABARIT.height) / 2;
+          ctx.strokeStyle = "orange";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x, y, w, h);
+          ctx.fillStyle = "black";
+          ctx.fillText(`${pred.class} ${(pred.score * 100).toFixed(1)}%`, x, y > 20 ? y - 5 : y + 20);
 
-          const color = isInside ? "green" : "red";
+          if (pixelPerCm) {
+            const widthCm = (w / pixelPerCm).toFixed(1);
+            const heightCm = (h / pixelPerCm).toFixed(1);
+            const isValid =
+              widthCm <= 35 && heightCm <= 55;
 
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 4;
-          ctx.strokeRect(x, y, width, height);
-          ctx.fillStyle = color;
-          ctx.font = "16px Arial";
-          ctx.fillText(
-            `${pred.class} ${(pred.score * 100).toFixed(1)}%`,
-            x,
-            y > 20 ? y - 5 : y + 20
-          );
+            ctx.fillStyle = isValid ? "green" : "red";
+            ctx.fillText(`~${widthCm}cm x ${heightCm}cm`, x + 5, y + h + 20);
+            ctx.fillText(isValid ? "✅ Cabine OK" : "❌ Trop grand", x + 5, y + h + 40);
+          }
+
+          found = true;
         }
       });
 
-      statusEl.textContent = foundBag ? "Bagage détecté ✅" : "Aucun bagage détecté";
+      statusEl.textContent = found ? "Bagage détecté" : "Aucun bagage";
 
       requestAnimationFrame(detectFrame);
     }
@@ -146,7 +164,7 @@
       await setupCamera();
       model = await cocoSsd.load();
       statusEl.textContent = "Modèle chargé, détection en cours...";
-      detectFrame();
+      requestAnimationFrame(detectFrame);
     }
 
     main();
