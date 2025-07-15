@@ -2,24 +2,24 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Test Bagage OUIGO avec Voix</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0"></script>
+  <title>Détection Bagage OUIGO</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <style>
     body {
       font-family: sans-serif;
-      text-align: center;
       background: #f4f4f4;
+      text-align: center;
       padding: 20px;
+    }
+    video, canvas {
+      border-radius: 10px;
+      width: 640px;
+      height: 480px;
     }
     #container {
       position: relative;
       display: inline-block;
-    }
-    video, canvas {
-      width: 640px;
-      height: 480px;
-      border-radius: 10px;
     }
     canvas {
       position: absolute;
@@ -27,17 +27,17 @@
       left: 0;
     }
     #status {
-      margin-top: 15px;
       font-size: 1.2em;
       font-weight: bold;
+      margin-top: 15px;
     }
     .ok { color: green; }
     .not-ok { color: red; }
   </style>
 </head>
 <body>
-  <h1>🧳 Test Bagage & Validation OUIGO</h1>
-  <p>Placez une feuille A4 visible dans le cadre pour calibrer les dimensions.</p>
+  <h1>🧳 Vérification Bagage OUIGO</h1>
+  <p>Placez une carte bancaire dans le champ pour calibrer automatiquement</p>
   <div id="container">
     <video id="video" autoplay muted playsinline></video>
     <canvas id="canvas"></canvas>
@@ -50,19 +50,16 @@
     const ctx = canvas.getContext("2d");
     const statusEl = document.getElementById("status");
 
-    const A4_WIDTH_CM = 21; // Feuille A4 largeur en cm
+    const CARD_WIDTH_CM = 8.56; // largeur standard CB
     let pixelPerCm = null;
     let model = null;
-
     const BAG_CLASSES = ['suitcase', 'backpack', 'handbag'];
     let lastSpokenMessage = "";
 
     function speak(message) {
       const synth = window.speechSynthesis;
-      if (!synth) return;
-
+      if (!synth || message === lastSpokenMessage) return;
       if (synth.speaking) synth.cancel();
-      if (message === lastSpokenMessage) return; // ne répète pas
 
       const utter = new SpeechSynthesisUtterance(message);
       utter.lang = 'fr-FR';
@@ -70,7 +67,7 @@
 
       const voices = synth.getVoices();
       const femaleVoice = voices.find(v =>
-        v.lang === 'fr-FR' && /female|femme|Google français/i.test(v.name)
+        v.lang === 'fr-FR' && /femme|female|Google français/i.test(v.name)
       );
       if (femaleVoice) utter.voice = femaleVoice;
 
@@ -79,13 +76,16 @@
     }
 
     window.speechSynthesis.onvoiceschanged = () => {
-      window.speechSynthesis.getVoices();
+      speechSynthesis.getVoices();
     };
+
+    function isOuigoCompatible(w, h) {
+      return w <= 55 && h <= 35;
+    }
 
     async function setupCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-        audio: false
+        video: { facingMode: "environment" }, audio: false
       });
       video.srcObject = stream;
       return new Promise(resolve => {
@@ -98,7 +98,7 @@
       });
     }
 
-    function detectA4(imageData) {
+    function detectCard(imageData) {
       const { data, width, height } = imageData;
       const blockSize = 10;
       const boxes = [];
@@ -114,14 +114,13 @@
             }
           }
           const avgBlock = sum / (blockSize * blockSize);
-          if (avgBlock > 220) {
+          if (avgBlock > 210) {
             boxes.push({ x, y });
           }
         }
       }
 
       if (boxes.length < 10) return null;
-
       const minX = Math.min(...boxes.map(b => b.x));
       const maxX = Math.max(...boxes.map(b => b.x));
       const minY = Math.min(...boxes.map(b => b.y));
@@ -131,36 +130,30 @@
       const h = maxY - minY;
       const ratio = w / h;
 
-      if (w > 100 && h > 150 && ratio > 0.6 && ratio < 0.9) {
+      if (w > 30 && h > 15 && ratio > 1.4 && ratio < 1.8) {
         return { x: minX, y: minY, width: w, height: h };
       }
       return null;
-    }
-
-    function isOuigoCompatible(widthCm, heightCm) {
-      return widthCm <= 55 && heightCm <= 35;
     }
 
     async function detectFrame() {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-      // Détection A4
-      const a4 = detectA4(imgData);
-      if (a4) {
+      const card = detectCard(imgData);
+      if (card) {
         ctx.strokeStyle = "blue";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(a4.x, a4.y, a4.width, a4.height);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(card.x, card.y, card.width, card.height);
         ctx.fillStyle = "blue";
-        ctx.fillText("Feuille A4 détectée", a4.x + 5, a4.y - 10);
-        pixelPerCm = a4.width / A4_WIDTH_CM;
+        ctx.fillText("CB détectée", card.x + 5, card.y - 10);
+        pixelPerCm = card.width / CARD_WIDTH_CM;
       } else {
         pixelPerCm = null;
         ctx.fillStyle = "gray";
-        ctx.fillText("⚠️ Feuille A4 non détectée", 10, 20);
+        ctx.fillText("⚠️ Carte bleue non détectée", 10, 20);
       }
 
-      // Détection bagage
       const predictions = await model.detect(video);
       let bagDetected = false;
 
@@ -181,29 +174,29 @@
             const ok = isOuigoCompatible(widthCm, heightCm);
 
             ctx.fillStyle = ok ? "green" : "red";
-            ctx.fillText(`~${widthCm} cm × ${heightCm} cm`, x + 4, y + h + 16);
-            ctx.fillText(ok ? "✅ OUIGO : format OK" : "❌ Trop grand pour OUIGO", x + 4, y + h + 32);
+            ctx.fillText(`~${widthCm}×${heightCm} cm`, x + 4, y + h + 16);
+            ctx.fillText(ok ? "✅ Format OUIGO OK" : "❌ Trop grand", x + 4, y + h + 32);
 
             if (ok) {
               const msg = `Bagage accepté en cabine OUIGO. N'oubliez pas l'option bagage si vous en avez plus d’un !`;
               statusEl.innerHTML = `<span class="ok">
-                ✅ Bagage accepté en cabine OUIGO (${widthCm}×${heightCm} cm)<br>
+                ✅ Bagage accepté (${widthCm}×${heightCm} cm)<br>
                 🧳 <em>${msg}</em>
               </span>`;
               speak(msg);
             } else {
-              const msg = `Bagage trop grand pour OUIGO. Pensez à l’option bagage ou à voyager plus léger.`;
+              const msg = `Bagage trop grand pour OUIGO. Pensez à l'option bagage ou à voyager plus léger.`;
               statusEl.innerHTML = `<span class="not-ok">
-                ❌ Bagage trop grand pour OUIGO (${widthCm}×${heightCm} cm)<br>
+                ❌ Bagage trop grand (${widthCm}×${heightCm} cm)<br>
                 😬 <em>${msg}</em>
               </span>`;
               speak(msg);
             }
           } else {
-            statusEl.textContent = "🕵️ Calibration en attente (A4 non détectée)";
+            statusEl.textContent = "🕵️ Calibration en attente (CB non détectée)";
           }
 
-          break; // on ne traite qu’un bagage à la fois
+          break;
         }
       }
 
@@ -219,6 +212,11 @@
       model = await cocoSsd.load();
       statusEl.textContent = "Modèle chargé, détection en cours...";
       detectFrame();
+
+      // force chargement des voix
+      setTimeout(() => {
+        speechSynthesis.getVoices();
+      }, 500);
     }
 
     main();
