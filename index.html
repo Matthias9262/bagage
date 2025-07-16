@@ -2,224 +2,853 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Détection Bagage OUIGO</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
   <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: sans-serif;
-      background: #f4f4f4;
-      text-align: center;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #333;
+      min-height: 100vh;
       padding: 20px;
     }
-    video, canvas {
-      border-radius: 10px;
-      width: 640px;
-      height: 480px;
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+      overflow: hidden;
     }
-    #container {
+
+    .header {
+      background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .header p {
+      font-size: 1.2em;
+      opacity: 0.9;
+    }
+
+    .main-content {
+      padding: 30px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 30px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 25px;
+      cursor: pointer;
+      font-size: 1em;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+    }
+
+    .btn-secondary {
+      background: linear-gradient(135deg, #ffeaa7, #fdcb6e);
+      color: #333;
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #ff7675, #d63031);
+      color: white;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .camera-container {
       position: relative;
       display: inline-block;
+      border-radius: 15px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+      margin: 0 auto;
+      display: block;
     }
+
+    video, canvas {
+      width: 100%;
+      max-width: 640px;
+      height: auto;
+      display: block;
+    }
+
     canvas {
       position: absolute;
       top: 0;
       left: 0;
     }
-    #status {
-      font-size: 1.2em;
+
+    .status-panel {
+      background: #f8f9fa;
+      border-radius: 15px;
+      padding: 25px;
+      margin-top: 30px;
+      border-left: 5px solid #667eea;
+    }
+
+    .status-main {
+      font-size: 1.4em;
       font-weight: bold;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+
+    .status-details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+
+    .status-card {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+
+    .status-card h3 {
+      color: #667eea;
+      margin-bottom: 10px;
+    }
+
+    .ok { color: #00b894; }
+    .not-ok { color: #e17055; }
+    .warning { color: #fdcb6e; }
+    .info { color: #74b9ff; }
+
+    .measurements {
+      background: #e8f4f8;
+      padding: 20px;
+      border-radius: 10px;
+      margin-top: 20px;
+    }
+
+    .measurements h3 {
+      color: #2d3436;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+
+    .dimension-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      text-align: center;
+    }
+
+    .dimension-item {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    .dimension-value {
+      font-size: 1.5em;
+      font-weight: bold;
+      color: #2d3436;
+    }
+
+    .dimension-label {
+      font-size: 0.9em;
+      color: #636e72;
+      margin-top: 5px;
+    }
+
+    .recommendations {
+      background: #fff3cd;
+      border: 1px solid #ffeaa7;
+      border-radius: 10px;
+      padding: 20px;
+      margin-top: 20px;
+    }
+
+    .recommendations h3 {
+      color: #856404;
+      margin-bottom: 15px;
+    }
+
+    .recommendations ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    .recommendations li {
+      padding: 8px 0;
+      border-bottom: 1px solid #ffeaa7;
+    }
+
+    .recommendations li:last-child {
+      border-bottom: none;
+    }
+
+    .recommendations li:before {
+      content: "💡 ";
+      margin-right: 10px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin-top: 30px;
+    }
+
+    .stat-card {
+      background: linear-gradient(135deg, #a8edea, #fed6e3);
+      padding: 20px;
+      border-radius: 15px;
+      text-align: center;
+      color: #2d3436;
+    }
+
+    .stat-number {
+      font-size: 2em;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+
+    .stat-label {
+      font-size: 0.9em;
+      opacity: 0.8;
+    }
+
+    .calibration-guide {
+      background: #e8f5e8;
+      border: 2px dashed #4caf50;
+      border-radius: 10px;
+      padding: 20px;
+      margin-top: 20px;
+      text-align: center;
+    }
+
+    .calibration-guide h3 {
+      color: #2e7d32;
+      margin-bottom: 15px;
+    }
+
+    .calibration-guide .hand-demo {
+      display: inline-block;
+      font-size: 3em;
+      margin: 10px;
+      animation: wave 2s infinite;
+    }
+
+    @keyframes wave {
+      0%, 100% { transform: rotate(0deg); }
+      25% { transform: rotate(10deg); }
+      75% { transform: rotate(-10deg); }
+    }
+
+    .loading {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 40px;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .pulse {
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+
+    .calibration-method {
+      background: #f0f8ff;
+      border: 1px solid #4a90e2;
+      border-radius: 10px;
+      padding: 15px;
       margin-top: 15px;
     }
-    .ok { color: green; }
-    .not-ok { color: red; }
+
+    .calibration-method h4 {
+      color: #2c5282;
+      margin-bottom: 10px;
+    }
+
+    .method-options {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .method-btn {
+      padding: 8px 16px;
+      border: 1px solid #4a90e2;
+      border-radius: 20px;
+      background: white;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .method-btn:hover {
+      background: #4a90e2;
+      color: white;
+    }
+
+    .method-btn.active {
+      background: #4a90e2;
+      color: white;
+    }
+
+    @media (max-width: 768px) {
+      .main-content {
+        padding: 20px;
+      }
+      
+      .controls {
+        flex-direction: column;
+        align-items: center;
+      }
+      
+      .btn {
+        width: 100%;
+        max-width: 300px;
+      }
+      
+      .dimension-grid {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>🧳 Vérification Bagage OUIGO</h1>
-  <p>Placez une carte bancaire dans le champ pour calibrer automatiquement</p>
-  <div id="container">
-    <video id="video" autoplay muted playsinline></video>
-    <canvas id="canvas"></canvas>
+  <div class="container">
+    <div class="header">
+      <h1>🧳 Détection Bagage OUIGO</h1>
+      <p>Vérifiez instantanément si votre bagage respecte les dimensions autorisées</p>
+    </div>
+
+    <div class="main-content">
+      <div class="controls">
+        <button id="startBtn" class="btn btn-primary">📹 Démarrer la caméra</button>
+        <button id="captureBtn" class="btn btn-secondary" disabled>📸 Capturer</button>
+        <button id="resetBtn" class="btn btn-danger">🔄 Réinitialiser</button>
+        <button id="soundToggle" class="btn btn-secondary">🔊 Audio: ON</button>
+      </div>
+
+      <div class="calibration-guide" id="calibrationGuide">
+        <h3>✋ Calibration automatique</h3>
+        <div class="hand-demo">✋</div>
+        <p>Montrez votre main ouverte face à la caméra pour calibrer automatiquement</p>
+        <p><strong>Dimensions moyennes main adulte:</strong> 18-20 cm</p>
+        
+        <div class="calibration-method">
+          <h4>Méthodes de calibration disponibles:</h4>
+          <div class="method-options">
+            <div class="method-btn active" data-method="hand">✋ Main (18cm)</div>
+            <div class="method-btn" data-method="card">💳 Carte (8.5cm)</div>
+            <div class="method-btn" data-method="phone">📱 Téléphone (15cm)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="camera-container">
+        <video id="video" autoplay muted playsinline style="display: none;"></video>
+        <canvas id="canvas" style="display: none;"></canvas>
+      </div>
+
+      <div class="status-panel">
+        <div class="status-main" id="status">
+          <div class="loading">
+            <div class="spinner"></div>
+            <span style="margin-left: 15px;">Initialisation...</span>
+          </div>
+        </div>
+        
+        <div class="status-details" id="statusDetails" style="display: none;">
+          <div class="status-card">
+            <h3>🎯 Détection</h3>
+            <div id="detectionInfo">En attente...</div>
+          </div>
+          <div class="status-card">
+            <h3>📏 Calibration</h3>
+            <div id="calibrationInfo">Non calibré</div>
+          </div>
+          <div class="status-card">
+            <h3>✅ Conformité</h3>
+            <div id="complianceInfo">-</div>
+          </div>
+        </div>
+
+        <div class="measurements" id="measurements" style="display: none;">
+          <h3>📐 Dimensions mesurées</h3>
+          <div class="dimension-grid">
+            <div class="dimension-item">
+              <div class="dimension-value" id="widthValue">-</div>
+              <div class="dimension-label">Largeur (cm)</div>
+            </div>
+            <div class="dimension-item">
+              <div class="dimension-value" id="heightValue">-</div>
+              <div class="dimension-label">Hauteur (cm)</div>
+            </div>
+            <div class="dimension-item">
+              <div class="dimension-value" id="confidenceValue">-</div>
+              <div class="dimension-label">Confiance (%)</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="recommendations" id="recommendations" style="display: none;">
+          <h3>💡 Recommandations</h3>
+          <ul id="recommendationsList"></ul>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat-card">
+          <div class="stat-number" id="totalDetections">0</div>
+          <div class="stat-label">Détections</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="validBags">0</div>
+          <div class="stat-label">Bagages valides</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" id="calibrationAccuracy">-</div>
+          <div class="stat-label">Méthode calibration</div>
+        </div>
+      </div>
+    </div>
   </div>
-  <div id="status">Chargement du modèle...</div>
 
   <script>
-    const video = document.getElementById("video");
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-    const statusEl = document.getElementById("status");
-
-    const CARD_WIDTH_CM = 8.56; // largeur standard CB
-    let pixelPerCm = null;
-    let model = null;
-    const BAG_CLASSES = ['suitcase', 'backpack', 'handbag'];
-    let lastSpokenMessage = "";
-
-    function speak(message) {
-      const synth = window.speechSynthesis;
-      if (!synth || message === lastSpokenMessage) return;
-      if (synth.speaking) synth.cancel();
-
-      const utter = new SpeechSynthesisUtterance(message);
-      utter.lang = 'fr-FR';
-      utter.rate = 1;
-
-      const voices = synth.getVoices();
-      const femaleVoice = voices.find(v =>
-        v.lang === 'fr-FR' && /femme|female|Google français/i.test(v.name)
-      );
-      if (femaleVoice) utter.voice = femaleVoice;
-
-      synth.speak(utter);
-      lastSpokenMessage = message;
-    }
-
-    window.speechSynthesis.onvoiceschanged = () => {
-      speechSynthesis.getVoices();
-    };
-
-    function isOuigoCompatible(w, h) {
-      return w <= 55 && h <= 35;
-    }
-
-    async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }, audio: false
-      });
-      video.srcObject = stream;
-      return new Promise(resolve => {
-        video.onloadedmetadata = () => {
-          video.play();
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          resolve();
+    class OuigoLuggageDetector {
+      constructor() {
+        this.video = document.getElementById("video");
+        this.canvas = document.getElementById("canvas");
+        this.ctx = this.canvas.getContext("2d");
+        this.statusEl = document.getElementById("status");
+        
+        // Méthodes de calibration
+        this.calibrationMethods = {
+          hand: { size: 18, name: "Main", emoji: "✋" },
+          card: { size: 8.56, name: "Carte", emoji: "💳" },
+          phone: { size: 15, name: "Téléphone", emoji: "📱" }
         };
-      });
-    }
+        
+        this.currentMethod = 'hand';
+        this.pixelPerCm = null;
+        this.model = null;
+        this.BAG_CLASSES = ['suitcase', 'backpack', 'handbag'];
+        this.lastSpokenMessage = "";
+        this.isDetecting = false;
+        this.audioEnabled = true;
+        this.detectionHistory = [];
+        this.stats = {
+          totalDetections: 0,
+          validBags: 0,
+          calibrationAccuracy: 0
+        };
+        
+        this.initializeElements();
+        this.setupEventListeners();
+        this.loadModel();
+      }
 
-    function detectCard(imageData) {
-      const { data, width, height } = imageData;
-      const blockSize = 10;
-      const boxes = [];
+      initializeElements() {
+        this.startBtn = document.getElementById("startBtn");
+        this.captureBtn = document.getElementById("captureBtn");
+        this.resetBtn = document.getElementById("resetBtn");
+        this.soundToggle = document.getElementById("soundToggle");
+        this.calibrationGuide = document.getElementById("calibrationGuide");
+        this.statusDetails = document.getElementById("statusDetails");
+        this.measurements = document.getElementById("measurements");
+        this.recommendations = document.getElementById("recommendations");
+      }
 
-      for (let y = 0; y < height; y += blockSize) {
-        for (let x = 0; x < width; x += blockSize) {
-          let sum = 0;
-          for (let dy = 0; dy < blockSize; dy++) {
-            for (let dx = 0; dx < blockSize; dx++) {
-              const px = ((y + dy) * width + (x + dx)) * 4;
-              const avg = (data[px] + data[px + 1] + data[px + 2]) / 3;
-              sum += avg;
-            }
-          }
-          const avgBlock = sum / (blockSize * blockSize);
-          if (avgBlock > 210) {
-            boxes.push({ x, y });
-          }
+      setupEventListeners() {
+        this.startBtn.addEventListener("click", () => this.toggleCamera());
+        this.captureBtn.addEventListener("click", () => this.captureImage());
+        this.resetBtn.addEventListener("click", () => this.reset());
+        this.soundToggle.addEventListener("click", () => this.toggleAudio());
+        
+        // Sélecteur de méthode de calibration
+        document.querySelectorAll('.method-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.method-btn').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            this.currentMethod = e.target.dataset.method;
+            this.updateCalibrationGuide();
+          });
+        });
+        
+        // Détection automatique des voix
+        window.speechSynthesis.onvoiceschanged = () => {
+          speechSynthesis.getVoices();
+        };
+      }
+
+      updateCalibrationGuide() {
+        const method = this.calibrationMethods[this.currentMethod];
+        const guideText = {
+          hand: "Montrez votre main ouverte face à la caméra",
+          card: "Placez une carte bancaire bien visible",
+          phone: "Présentez votre téléphone à plat"
+        };
+        
+        document.querySelector('.calibration-guide p').textContent = guideText[this.currentMethod];
+        document.querySelector('.calibration-guide .hand-demo').textContent = method.emoji;
+        document.querySelector('.calibration-guide p:last-child').innerHTML = 
+          `<strong>${method.name}:</strong> ${method.size} cm`;
+      }
+
+      async loadModel() {
+        try {
+          this.statusEl.innerHTML = `
+            <div class="loading">
+              <div class="spinner"></div>
+              <span style="margin-left: 15px;">Chargement du modèle IA...</span>
+            </div>
+          `;
+          
+          this.model = await cocoSsd.load();
+          this.statusEl.innerHTML = `
+            <div class="info">
+              ✅ Modèle chargé avec succès<br>
+              <small>Cliquez sur "Démarrer la caméra" pour commencer</small>
+            </div>
+          `;
+          
+          this.startBtn.disabled = false;
+        } catch (error) {
+          this.statusEl.innerHTML = `
+            <div class="not-ok">
+              ❌ Erreur de chargement du modèle<br>
+              <small>${error.message}</small>
+            </div>
+          `;
         }
       }
 
-      if (boxes.length < 10) return null;
-      const minX = Math.min(...boxes.map(b => b.x));
-      const maxX = Math.max(...boxes.map(b => b.x));
-      const minY = Math.min(...boxes.map(b => b.y));
-      const maxY = Math.max(...boxes.map(b => b.y));
-
-      const w = maxX - minX;
-      const h = maxY - minY;
-      const ratio = w / h;
-
-      if (w > 30 && h > 15 && ratio > 1.4 && ratio < 1.8) {
-        return { x: minX, y: minY, width: w, height: h };
-      }
-      return null;
-    }
-
-    async function detectFrame() {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-      const card = detectCard(imgData);
-      if (card) {
-        ctx.strokeStyle = "blue";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(card.x, card.y, card.width, card.height);
-        ctx.fillStyle = "blue";
-        ctx.fillText("CB détectée", card.x + 5, card.y - 10);
-        pixelPerCm = card.width / CARD_WIDTH_CM;
-      } else {
-        pixelPerCm = null;
-        ctx.fillStyle = "gray";
-        ctx.fillText("⚠️ Carte bleue non détectée", 10, 20);
-      }
-
-      const predictions = await model.detect(video);
-      let bagDetected = false;
-
-      for (const pred of predictions) {
-        if (BAG_CLASSES.includes(pred.class) && pred.score > 0.5) {
-          bagDetected = true;
-          const [x, y, w, h] = pred.bbox;
-
-          ctx.strokeStyle = "orange";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x, y, w, h);
-          ctx.fillStyle = "black";
-          ctx.fillText(`${pred.class} ${(pred.score * 100).toFixed(1)}%`, x + 4, y - 4);
-
-          if (pixelPerCm) {
-            const widthCm = (w / pixelPerCm).toFixed(1);
-            const heightCm = (h / pixelPerCm).toFixed(1);
-            const ok = isOuigoCompatible(widthCm, heightCm);
-
-            ctx.fillStyle = ok ? "green" : "red";
-            ctx.fillText(`~${widthCm}×${heightCm} cm`, x + 4, y + h + 16);
-            ctx.fillText(ok ? "✅ Format OUIGO OK" : "❌ Trop grand", x + 4, y + h + 32);
-
-            if (ok) {
-              const msg = `Bagage accepté en cabine OUIGO. N'oubliez pas l'option bagage si vous en avez plus d’un !`;
-              statusEl.innerHTML = `<span class="ok">
-                ✅ Bagage accepté (${widthCm}×${heightCm} cm)<br>
-                🧳 <em>${msg}</em>
-              </span>`;
-              speak(msg);
-            } else {
-              const msg = `Bagage trop grand pour OUIGO. Pensez à l'option bagage ou à voyager plus léger.`;
-              statusEl.innerHTML = `<span class="not-ok">
-                ❌ Bagage trop grand (${widthCm}×${heightCm} cm)<br>
-                😬 <em>${msg}</em>
-              </span>`;
-              speak(msg);
-            }
-          } else {
-            statusEl.textContent = "🕵️ Calibration en attente (CB non détectée)";
-          }
-
-          break;
+      async toggleCamera() {
+        if (!this.isDetecting) {
+          await this.startDetection();
+        } else {
+          this.stopDetection();
         }
       }
 
-      if (!bagDetected) {
-        statusEl.textContent = "🔍 En attente d’un bagage...";
+      async startDetection() {
+        try {
+          await this.setupCamera();
+          this.isDetecting = true;
+          this.startBtn.textContent = "⏹️ Arrêter";
+          this.startBtn.className = "btn btn-danger";
+          this.captureBtn.disabled = false;
+          this.video.style.display = "block";
+          this.canvas.style.display = "block";
+          this.calibrationGuide.style.display = "block";
+          this.statusDetails.style.display = "grid";
+          this.detectFrame();
+        } catch (error) {
+          this.statusEl.innerHTML = `<div class="not-ok">❌ Erreur caméra: ${error.message}</div>`;
+        }
       }
 
-      requestAnimationFrame(detectFrame);
-    }
+      stopDetection() {
+        this.isDetecting = false;
+        this.startBtn.textContent = "📹 Démarrer la caméra";
+        this.startBtn.className = "btn btn-primary";
+        this.captureBtn.disabled = true;
+        
+        if (this.video.srcObject) {
+          this.video.srcObject.getTracks().forEach(track => track.stop());
+        }
+        
+        this.video.style.display = "none";
+        this.canvas.style.display = "none";
+        this.calibrationGuide.style.display = "none";
+        this.statusDetails.style.display = "none";
+        this.measurements.style.display = "none";
+        this.recommendations.style.display = "none";
+      }
 
-    async function main() {
-      await setupCamera();
-      model = await cocoSsd.load();
-      statusEl.textContent = "Modèle chargé, détection en cours...";
-      detectFrame();
+      async setupCamera() {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { 
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }, 
+          audio: false
+        });
+        
+        this.video.srcObject = stream;
+        
+        return new Promise(resolve => {
+          this.video.onloadedmetadata = () => {
+            this.video.play();
+            this.canvas.width = this.video.videoWidth;
+            this.canvas.height = this.video.videoHeight;
+            resolve();
+          };
+        });
+      }
 
-      // force chargement des voix
-      setTimeout(() => {
-        speechSynthesis.getVoices();
-      }, 500);
-    }
+      // Détection générique d'objet de référence
+      async detectReferenceObject() {
+        const predictions = await this.model.detect(this.video);
+        
+        const detectionMap = {
+          hand: ['person'], // On détectera les contours de main différemment
+          card: ['book', 'laptop'], // Objets rectangulaires similaires
+          phone: ['cell phone', 'remote']
+        };
+        
+        const targetClasses = detectionMap[this.currentMethod] || [];
+        
+        // Pour la main, on utilise une détection de contour spécifique
+        if (this.currentMethod === 'hand') {
+          return this.detectHandContour();
+        }
+        
+        // Pour les autres objets, utiliser la détection COCO
+        for (const pred of predictions) {
+          if (targetClasses.includes(pred.class) && pred.score > 0.5) {
+            const [x, y, w, h] = pred.bbox;
+            return { x, y, width: w, height: h, confidence: pred.score };
+          }
+        }
+        
+        return null;
+      }
 
-    main();
-  </script>
-</body>
-</html>
+      // Détection spécifique des contours de main
+      detectHandContour() {
+        const imgData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        const { data, width, height } = imgData;
+        
+        // Détection de contours par différence de couleur chair
+        const skinDetections = [];
+        const blockSize = 12;
+        
+        for (let y = 0; y < height; y += blockSize) {
+          for (let x = 0; x < width; x += blockSize) {
+            let skinPixels = 0;
+            let totalPixels = 0;
+            
+            for (let dy = 0; dy < blockSize && y + dy < height; dy++) {
+              for (let dx = 0; dx < blockSize && x + dx < width; dx++) {
+                const px = ((y + dy) * width + (x + dx)) * 4;
+                const r = data[px];
+                const g = data[px + 1];
+                const b = data[px + 2];
+                
+                // Détection approximative de couleur chair
+                if (this.isSkinColor(r, g, b)) {
+                  skinPixels++;
+                }
+                totalPixels++;
+              }
+            }
+            
+            if (totalPixels > 0 && skinPixels / totalPixels > 0.6) {
+              skinDetections.push({ x, y });
+            }
+          }
+        }
+        
+        if (skinDetections.length < 8) return null;
+        
+        // Calculer les limites de la zone de peau détectée
+        const minX = Math.min(...skinDetections.map(d => d.x));
+        const maxX = Math.max(...skinDetections.map(d => d.x));
+        const minY = Math.min(...skinDetections.map(d => d.y));
+        const maxY = Math.max(...skinDetections.map(d => d.y));
+        
+        const w = maxX - minX + blockSize;
+        const h = maxY - minY + blockSize;
+        
+        // Vérifier si les proportions correspondent à une main
+        const ratio = w / h;
+        if (w > 60 && h > 80 && ratio > 0.6 && ratio < 1.4) {
+          return { 
+            x: minX, 
+            y: minY, 
+            width: w, 
+            height: Math.max(w, h), // Utiliser la plus grande dimension
+            confidence: 0.8 
+          };
+        }
+        
+        return null;
+      }
+
+      // Détection approximative de couleur chair
+      isSkinColor(r, g, b) {
+        // Algorithme simple de détection de peau
+        return (r > 95 && g > 40 && b > 20 && 
+                r > g && r > b && 
+                r - g > 15 && 
+                Math.abs(r - g) > 15);
+      }
+
+      isOuigoCompatible(w, h) {
+        return w <= 55 && h <= 35 && w > 0 && h > 0;
+      }
+
+      speak(message) {
+        if (!this.audioEnabled) return;
+        
+        const synth = window.speechSynthesis;
+        if (!synth || message === this.lastSpokenMessage) return;
+        if (synth.speaking) synth.cancel();
+
+        const utter = new SpeechSynthesisUtterance(message);
+        utter.lang = 'fr-FR';
+        utter.rate = 0.9;
+        utter.pitch = 1.1;
+
+        const voices = synth.getVoices();
+        const preferredVoice = voices.find(v =>
+          v.lang.startsWith('fr') && (v.name.includes('Google') || v.name.includes('female'))
+        );
+        if (preferredVoice) utter.voice = preferredVoice;
+
+        synth.speak(utter);
+        this.lastSpokenMessage = message;
+      }
+
+      updateStats() {
+        document.getElementById("totalDetections").textContent = this.stats.totalDetections;
+        document.getElementById("validBags").textContent = this.stats.validBags;
+        document.getElementById("calibrationAccuracy").textContent = 
+          this.pixelPerCm ? this.calibrationMethods[this.currentMethod].emoji : "❌";
+      }
+
+      showRecommendations(bagWidth, bagHeight, isValid) {
+        const recommendations = document.getElementById("recommendations");
+        const list = document.getElementById("recommendationsList");
+        
+        list.innerHTML = "";
+        
+        if (!isValid) {
+          if (bagWidth > 55) {
+            list.innerHTML += "<li>La largeur dépasse 55cm. Considérez un bagage plus petit.</li>";
+          }
+          if (bagHeight > 35) {
+            list.innerHTML += "<li>La hauteur dépasse 35cm. Réduisez le volume de votre bagage.</li>";
+          }
+          list.innerHTML += "<li>Pensez à l'option bagage en soute si nécessaire.</li>";
+          list.innerHTML += "<li>Vérifiez les dimensions exactes avec une règle.</li>";
+        } else {
+          list.innerHTML += "<li>Votre bagage respecte les dimensions OUIGO ✅</li>";
+          list.innerHTML += "<li>N'oubliez pas: 1 seul bagage cabine gratuit par passager.</li>";
+          list.innerHTML += "<li>Vérifiez le poids (10kg maximum).</li>";
+        }
+        
+        recommendations.style.display = "block";
+      }
+
+      updateMeasurements(width, height, confidence) {
+        document.getElementById("widthValue").textContent = width;
+        document.getElementById("heightValue").textContent = height;
+        document.getElementById("confidenceValue").textContent = Math.round(confidence);
+        this.measurements.style.display = "block";
+      }
+
+      async detectFrame() {
+        if (!this.isDetecting) return;
+
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+        
+        // Détection de l'objet de référence
+        const referenceObj = await this.detectReferenceObject();
+        const method = this.calibrationMethods[this.currentMethod];
+        
+        if (referenceObj) {
+          this.ctx.strokeStyle = "#4caf50";
+          this.ctx.lineWidth = 3;
+          this.ctx.strokeRect(referenceObj.x, referenceObj.y, referenceObj.width, referenceObj.height);
+          this.ctx.fillStyle = "#4caf50";
+          this.ctx.font = "16px Arial";
+          this.ctx.fillText(`${method.emoji} ${method.name} détecté`, referenceObj.x + 5, referenceObj.y - 10);
+          
+          // Calibration basée sur la plus grande dimension pour la main
+          const referenceSize = this.currentMethod === 'hand' ? 
+            Math.max(referenceObj.width, referenceObj.height) : referenceObj.width;
+          this.pixelPerCm = referenceSize / method.size;
+          
+          this.calibrationGuide.style.display = "none";
+          
+          document.getElementById("calibrationInfo").innerHTML = `
+            <span class="ok">✅ Calibré (${method.name})</span><br>
+            <small>${this.pixelPerCm.toFixed(2)} px/cm</small>
+          `;
+        } else {
+          this.pixelPerCm = null;
+          this.calibrationGuide.style.display = "block";
+          document.getElementById("calibrationInfo").innerHTML = `
+            <span class="warning">⚠️ ${method.name} non détecté</span><br>
+            <small>Calibration requise</small>
+          `;
+        }
+
+        // Détection
