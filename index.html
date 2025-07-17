@@ -1,85 +1,70 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <title>Démo WAHO automatique - Mesure Bagage RA + IA</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  
-  <!-- TensorFlow COCO-SSD -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-  
-  <style>
-    body {
-      margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: #111;
-      color: white;
-      user-select: none;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-    }
-    #video {
-      width: 100vw; height: 60vh;
-      object-fit: cover;
-      border-radius: 10px;
-      box-shadow: 0 0 20px #0af88aaa;
-      background: black;
-    }
-    #calibration-box {
-      position: absolute;
-      border: 3px dashed #0af;
-      border-radius: 10px;
-      width: 85mm;  /* approx carte bancaire largeur en mm */
-      height: 54mm; /* approx carte bancaire hauteur en mm */
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      box-sizing: border-box;
-      animation: pulse 2s ease-in-out infinite;
-      pointer-events: none;
-      z-index: 10;
-    }
-    @keyframes pulse {
-      0%, 100% { box-shadow: 0 0 12px 4px #0af88a88; }
-      50% { box-shadow: 0 0 24px 8px #0affeecc; }
-    }
-    #overlay {
-      margin-top: 15px;
-      width: 90vw;
-      max-width: 420px;
-      padding: 15px 20px;
-      background: rgba(0,0,0,0.7);
-      border-radius: 12px;
-      font-size: 18px;
-      line-height: 1.3;
-      user-select: none;
-      text-align: center;
-    }
-    #btnStart {
-      margin-top: 15px;
-      background: #0af88a;
-      border: none;
-      padding: 15px 35px;
-      font-size: 20px;
-      font-weight: 700;
-      border-radius: 40px;
-      color: #022;
-      cursor: pointer;
-      user-select: none;
-      transition: background 0.3s ease;
-    }
-    #btnStart:hover {
-      background: #0aeeaa;
-    }
-    #bboxCanvas {
-      position: absolute;
-      top: 0; left: 0;
-      pointer-events: none;
-      z-index: 20;
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Démo Bagage RA Stabilisée avec Voix Naturelle</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+<style>
+  body {
+    margin: 0; background: #111; color: #eee; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh;
+    user-select: none;
+  }
+  #video {
+    width: 100vw; max-width: 480px; height: auto; border-radius: 12px; object-fit: cover; background: black;
+  }
+  #bboxCanvas {
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    max-width: 480px; width: 100vw; height: auto;
+    pointer-events: none; z-index: 10;
+  }
+  #calibration-box {
+    position: absolute;
+    border: 3px dashed #0af;
+    border-radius: 10px;
+    width: 85mm; /* largeur carte bancaire */
+    height: 54mm; /* hauteur carte bancaire */
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    box-sizing: border-box;
+    animation: pulse 2s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 20;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 12px 4px #0af88a88; }
+    50% { box-shadow: 0 0 24px 8px #0affeecc; }
+  }
+  #overlay {
+    position: relative;
+    margin-top: 15px;
+    width: 90vw; max-width: 480px;
+    background: rgba(0,0,0,0.7);
+    padding: 12px 20px;
+    border-radius: 12px;
+    font-size: 18px;
+    user-select: none;
+    text-align: center;
+  }
+  #btnStart {
+    margin-top: 15px;
+    padding: 14px 36px;
+    font-size: 20px;
+    font-weight: 700;
+    border-radius: 40px;
+    border: none;
+    background: #0af88a;
+    color: #022;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.3s ease;
+  }
+  #btnStart:hover {
+    background: #0aeeaa;
+  }
+</style>
 </head>
 <body>
 
@@ -94,90 +79,143 @@
   </div>
   <button id="btnStart">Démarrer la démo automatique</button>
 
-  <script>
-    let video = document.getElementById('video');
-    let canvas = document.getElementById('bboxCanvas');
-    let ctx = canvas.getContext('2d');
-    let calibrationBox = document.getElementById('calibration-box');
-    let btnStart = document.getElementById('btnStart');
-    let instructions = document.getElementById('instructions');
-    let typeDetection = document.getElementById('typeDetection');
-    let sizeResult = document.getElementById('sizeResult');
+<script>
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('bboxCanvas');
+  const ctx = canvas.getContext('2d');
+  const calibrationBox = document.getElementById('calibration-box');
+  const btnStart = document.getElementById('btnStart');
+  const instructions = document.getElementById('instructions');
+  const typeDetection = document.getElementById('typeDetection');
+  const sizeResult = document.getElementById('sizeResult');
 
-    let model = null;
-    let isCalibrated = false;
-    let calibrationPxWidth = 0;
-    const realCardWidthCm = 8.5; // carte bancaire largeur en cm
-    let scalePxToCm = 0;
-    let captureDone = false;
+  let model = null;
+  let isCalibrated = false;
+  let calibrationPxWidth = 0;
+  const realCardWidthCm = 8.5; // largeur carte bancaire en cm
+  let scalePxToCm = 0;
 
-    function adjustCanvas() {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.style.width = video.clientWidth + 'px';
-      canvas.style.height = video.clientHeight + 'px';
+  // Pour stabiliser bbox
+  let bboxHistory = [];
+  let detectionStableCount = 0;
+  const stableThreshold = 4; // frames consécutives nécessaires
+
+  let captureDone = false;
+
+  function adjustCanvas() {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.style.width = video.clientWidth + 'px';
+    canvas.style.height = video.clientHeight + 'px';
+  }
+
+  async function setupCamera() {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = stream;
+    return new Promise(resolve => {
+      video.onloadedmetadata = () => {
+        adjustCanvas();
+        resolve();
+      };
+    });
+  }
+
+  async function loadModel() {
+    model = await cocoSsd.load();
+  }
+
+  function calibrate() {
+    const rect = calibrationBox.getBoundingClientRect();
+    const videoRect = video.getBoundingClientRect();
+    calibrationPxWidth = rect.width * (video.videoWidth / videoRect.width);
+    scalePxToCm = realCardWidthCm / calibrationPxWidth;
+    isCalibrated = true;
+    instructions.textContent = "✅ Calibration terminée, approche un bagage devant la caméra...";
+    calibrationBox.style.display = 'none';
+  }
+
+  function speak(text) {
+    if (!window.speechSynthesis) return;
+
+    window.speechSynthesis.cancel();
+
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'fr-FR';
+
+    const voices = window.speechSynthesis.getVoices();
+
+    function selectVoice() {
+      let voice = voices.find(v => v.lang.startsWith('fr') && /female|femme|f/gi.test(v.name));
+      if (!voice) {
+        voice = voices.find(v => v.lang.startsWith('fr'));
+      }
+      return voice || null;
     }
 
-    async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-      video.srcObject = stream;
-      return new Promise(resolve => {
-        video.onloadedmetadata = () => {
-          adjustCanvas();
-          resolve();
-        };
-      });
+    let voice = selectVoice();
+
+    if (voice) {
+      utter.voice = voice;
+      utter.pitch = 1.1;
+      utter.rate = 0.9;
     }
 
-    async function loadModel() {
-      model = await cocoSsd.load();
-    }
-
-    function calibrate() {
-      const rect = calibrationBox.getBoundingClientRect();
-      const videoRect = video.getBoundingClientRect();
-      calibrationPxWidth = rect.width * (video.videoWidth / videoRect.width);
-      scalePxToCm = realCardWidthCm / calibrationPxWidth;
-      isCalibrated = true;
-      instructions.textContent = "Calibration terminée, approche un bagage devant la caméra...";
-      calibrationBox.style.display = 'none';
-    }
-
-    function speak(text) {
-      if (!window.speechSynthesis) return;
-      window.speechSynthesis.cancel();
-      let utter = new SpeechSynthesisUtterance(text);
-      utter.lang = 'fr-FR';
-      let voices = window.speechSynthesis.getVoices();
-      let voice = voices.find(v => v.lang.startsWith('fr') && v.name.toLowerCase().includes('female'));
-      if (voice) utter.voice = voice;
+    if (voices.length === 0) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        const voicesUpdated = window.speechSynthesis.getVoices();
+        utter.voice = voicesUpdated.length ? selectVoice() : null;
+        window.speechSynthesis.speak(utter);
+      };
+    } else {
       window.speechSynthesis.speak(utter);
     }
+  }
 
-    function drawBBox(bbox, ok) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.lineWidth = 5;
-      ctx.strokeStyle = ok ? '#0f0' : '#f00';
-      ctx.fillStyle = ok ? 'rgba(0,255,0,0.2)' : 'rgba(255,0,0,0.2)';
-      ctx.font = "26px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-      ctx.fillRect(bbox[0], bbox[1], bbox[2], bbox[3]);
-      ctx.strokeRect(bbox[0], bbox[1], bbox[2], bbox[3]);
+  function drawBBox(bbox, ok) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = ok ? '#0f0' : '#f00';
+    ctx.fillStyle = ok ? 'rgba(0,255,0,0.2)' : 'rgba(255,0,0,0.2)';
+    ctx.font = "26px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+    ctx.fillRect(bbox[0], bbox[1], bbox[2], bbox[3]);
+    ctx.strokeRect(bbox[0], bbox[1], bbox[2], bbox[3]);
+  }
+
+  function smoothBBox(newBBox) {
+    bboxHistory.push(newBBox);
+    if (bboxHistory.length > 5) bboxHistory.shift();
+
+    let avgBBox = [0, 0, 0, 0];
+    for (const box of bboxHistory) {
+      avgBBox[0] += box[0];
+      avgBBox[1] += box[1];
+      avgBBox[2] += box[2];
+      avgBBox[3] += box[3];
     }
+    avgBBox = avgBBox.map(x => x / bboxHistory.length);
+    return avgBBox;
+  }
 
-    async function detectLoop() {
-      if (!model) return;
-      const predictions = await model.detect(video);
-      const bag = predictions.find(p => ['suitcase', 'backpack', 'handbag'].includes(p.class) && p.score > 0.7);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+  async function detectLoop() {
+    if (!model) return;
+    const predictions = await model.detect(video);
+    const bag = predictions.find(p => ['suitcase', 'backpack', 'handbag'].includes(p.class) && p.score > 0.85);
 
-      if (bag && isCalibrated) {
+    if (bag && isCalibrated) {
+      detectionStableCount++;
+      bboxHistory.push(bag.bbox);
+      if (bboxHistory.length > 5) bboxHistory.shift();
+
+      if (detectionStableCount >= stableThreshold) {
+        const smoothBox = smoothBBox(bboxHistory);
+        drawBBox(smoothBox, true);
+
         typeDetection.textContent = `🧳 Objet détecté : ${bag.class} (${(bag.score*100).toFixed(0)}%)`;
-        const bboxPxWidth = bag.bbox[2];
+
+        const bboxPxWidth = smoothBox[2];
         const bboxCmWidth = bboxPxWidth * scalePxToCm;
         const maxWidthCm = 55;
         const ok = bboxCmWidth <= maxWidthCm;
-
-        drawBBox(bag.bbox, ok);
         sizeResult.textContent = `Largeur estimée : ${bboxCmWidth.toFixed(1)} cm — ${ok ? '✅ Conforme OUIGO' : '❌ Trop large'}`;
 
         if (!captureDone && ok) {
@@ -189,27 +227,30 @@
           captureDone = true;
           setTimeout(() => { captureDone = false; }, 10000);
         }
-      } else {
-        typeDetection.textContent = "🔎 Aucun bagage détecté...";
-        sizeResult.textContent = "";
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
-
-      requestAnimationFrame(detectLoop);
+    } else {
+      detectionStableCount = 0;
+      bboxHistory = [];
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      typeDetection.textContent = "🔎 Aucun bagage détecté...";
+      sizeResult.textContent = "";
     }
+    requestAnimationFrame(detectLoop);
+  }
 
-    btnStart.onclick = async () => {
-      btnStart.style.display = 'none';
-      calibrationBox.style.display = 'block';
-      instructions.textContent = "Place ta carte bancaire dans le cadre bleu pendant 5 secondes pour calibrer 📏";
-      await setupCamera();
-      await loadModel();
+  btnStart.onclick = async () => {
+    btnStart.style.display = 'none';
+    calibrationBox.style.display = 'block';
+    instructions.textContent = "Place ta carte bancaire dans le cadre bleu pendant 5 secondes pour calibrer 📏";
+    await setupCamera();
+    await loadModel();
 
-      setTimeout(() => {
-        calibrate();
-        detectLoop();
-      }, 5000);
-    };
-  </script>
+    setTimeout(() => {
+      calibrate();
+      detectLoop();
+    }, 5000);
+  };
+</script>
+
 </body>
 </html>
