@@ -93,6 +93,12 @@
     box-shadow: 0 0 20px var(--ouigo-jaune);
     pointer-events: none;
     z-index: 10;
+    transition: opacity 0.6s ease;
+  }
+
+  #calibrationBox.hidden {
+    opacity: 0;
+    pointer-events: none;
   }
 
   @keyframes pulseGlow {
@@ -482,6 +488,9 @@
       alert(currentLang==='fr' ? 'Place ta carte dans le cadre jaune puis clique sur "Démarrer la démo".' : 'Place your card inside the yellow box then click "Start demo".');
       return;
     }
+    // Cacher cadre jaune dès que calibré
+    calibrationBox.classList.add('hidden');
+
     btnStart.disabled = true;
     btnReset.style.display = 'inline-block';
     feedback.textContent = currentLang==='fr' ? 'Détection en cours...' : 'Detecting...';
@@ -498,6 +507,7 @@
     btnReset.style.display = 'none';
     btnStart.disabled = false;
     feedback.textContent = currentLang==='fr' ? 'Calibration réinitialisée. Place ta carte dans le cadre jaune.' : 'Calibration reset. Place your card inside the yellow box.';
+    calibrationBox.classList.remove('hidden');
   });
 
   // Calibration simplifiée : mesure du cadre fixe en pixels dans la vidéo
