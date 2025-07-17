@@ -1,156 +1,278 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <title>Scanner RA Bagage + IA</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <title>Démo WAHO - Mesure Bagage RA + IA</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <!-- TensorFlow COCO-SSD -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  
+  <!-- Three.js + WebXR -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.148.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.148.0/examples/jsm/webxr/ARButton.js"></script>
+
   <style>
     body {
-      margin: 0;
-      overflow: hidden;
-      font-family: sans-serif;
+      margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #111;
+      color: white;
+      user-select: none;
     }
-    #info {
+    #video {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      object-fit: cover;
+      z-index: 0;
+      filter: brightness(0.9) contrast(1.1);
+    }
+    #overlay {
+      position: absolute;
+      top: 10px; left: 10px;
+      z-index: 5;
+      width: calc(100vw - 20px);
+      max-width: 420px;
+      padding: 15px 20px;
+      background: rgba(0,0,0,0.7);
+      border-radius: 12px;
+      font-size: 18px;
+      line-height: 1.3;
+      user-select: none;
+      pointer-events: none;
+    }
+    #calibration-box {
+      position: absolute;
+      border: 3px dashed #0af;
+      border-radius: 10px;
+      width: 85mm;  /* approx carte bancaire largeur en mm */
+      height: 54mm; /* approx carte bancaire hauteur en mm */
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      box-sizing: border-box;
+      animation: pulse 2s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 2;
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 12px 4px #0af88a88; }
+      50% { box-shadow: 0 0 24px 8px #0affeecc; }
+    }
+    #btnStart {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0af88a;
+      border: none;
+      padding: 15px 35px;
+      font-size: 20px;
+      font-weight: 700;
+      border-radius: 40px;
+      color: #022;
+      cursor: pointer;
+      z-index: 10;
+      user-select: none;
+      transition: background 0.3s ease;
+    }
+    #btnStart:hover {
+      background: #0aeeaa;
+    }
+    #capturePhoto {
       position: absolute;
       top: 10px;
-      left: 10px;
-      padding: 10px;
-      background: rgba(0, 0, 0, 0.6);
-      color: white;
-      font-size: 16px;
-      z-index: 1;
-      border-radius: 8px;
-    }
-    #reset {
-      background: #007aff;
-      color: white;
+      right: 10px;
+      background: #0af88a;
       border: none;
-      padding: 10px;
-      border-radius: 5px;
-      font-size: 16px;
-      margin-top: 10px;
+      padding: 10px 15px;
+      font-size: 14px;
+      border-radius: 10px;
+      color: #022;
+      cursor: pointer;
+      z-index: 10;
+      display: none;
+      user-select: none;
     }
-    video {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      z-index: -1;
+    #typeDetection {
+      margin-top: 10px;
+      font-weight: 600;
+      color: #0af;
     }
   </style>
 </head>
 <body>
+
   <video id="video" autoplay muted playsinline></video>
-  <div id="info">
-    <div id="status">🎯 Touchez deux coins du bagage pour mesurer 📏</div>
-    <div id="type">🔎 Type : analyse en cours...</div>
-    <button id="reset">Réinitialiser</button>
+  <div id="calibration-box" style="display:none"></div>
+
+  <div id="overlay">
+    <div id="instructions">Place ta carte bancaire dans le cadre bleu pour calibrer 📏</div>
+    <div id="typeDetection"></div>
+    <div id="distanceResult" style="margin-top: 10px; font-weight: 600;"></div>
   </div>
 
+  <button id="btnStart">Démarrer la démo</button>
+  <button id="capturePhoto">📸 Télécharger la photo</button>
+
   <script>
-    let camera, scene, renderer;
-    let controller;
+    // Variables globales
+    let model, video, scene, camera, renderer, controller;
     let hitTestSource = null;
     let hitTestSourceRequested = false;
-    const points = [];
+    let points = [];
+    let measurementDone = false;
+    let synth = window.speechSynthesis;
+    let utterance;
 
-    const statusEl = document.getElementById("status");
-    const typeEl = document.getElementById("type");
-    const resetBtn = document.getElementById("reset");
-    const video = document.getElementById("video");
+    const calibrationBox = document.getElementById('calibration-box');
+    const btnStart = document.getElementById('btnStart');
+    const capturePhotoBtn = document.getElementById('capturePhoto');
+    const overlay = document.getElementById('overlay');
+    const instructions = document.getElementById('instructions');
+    const typeDetection = document.getElementById('typeDetection');
+    const distanceResult = document.getElementById('distanceResult');
 
-    async function initVideoAndModel() {
+    // Init vidéo caméra arrière
+    async function initVideo() {
+      video = document.getElementById('video');
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
       video.srcObject = stream;
-      const model = await cocoSsd.load();
-      detect(model);
+      return new Promise(resolve => {
+        video.onloadedmetadata = () => {
+          resolve();
+        };
+      });
     }
 
-    async function detect(model) {
-      const detectLoop = async () => {
-        const predictions = await model.detect(video);
-        const bag = predictions.find(p => ['suitcase', 'backpack', 'handbag'].includes(p.class) && p.score > 0.6);
-        if (bag) {
-          typeEl.innerHTML = `🧳 Objet détecté : <strong>${bag.class}</strong> (${(bag.score * 100).toFixed(0)}%)`;
-        } else {
-          typeEl.textContent = "🔎 Aucun bagage détecté pour l’instant...";
-        }
-        requestAnimationFrame(() => detect(model));
-      };
-      detectLoop();
+    // Charger le modèle COCO-SSD
+    async function loadModel() {
+      model = await cocoSsd.load();
     }
 
+    // Détection IA en boucle
+    async function detectLoop() {
+      if (!model || !video) return;
+      const predictions = await model.detect(video);
+      const bag = predictions.find(p => ['suitcase', 'backpack', 'handbag'].includes(p.class) && p.score > 0.7);
+      if (bag) {
+        typeDetection.textContent = `🧳 Objet détecté : ${bag.class} (${(bag.score*100).toFixed(0)}%)`;
+      } else {
+        typeDetection.textContent = "🔎 Aucun bagage détecté...";
+      }
+      if (!measurementDone) {
+        requestAnimationFrame(detectLoop);
+      }
+    }
+
+    // Synthèse vocale
+    function speak(text) {
+      if (!synth) return;
+      if (utterance) synth.cancel();
+      utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'fr-FR';
+      utterance.voice = synth.getVoices().find(v => v.lang.startsWith('fr') && v.name.toLowerCase().includes('female')) || synth.getVoices()[0];
+      synth.speak(utterance);
+    }
+
+    // Init Three.js + WebXR
     function initXR() {
-      const container = document.createElement('div');
-      document.body.appendChild(container);
-
       scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 20);
 
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
-      container.appendChild(renderer.domElement);
+      document.body.appendChild(renderer.domElement);
 
-      document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] }));
+      document.body.appendChild(ARButton.createButton(renderer, {requiredFeatures:['hit-test']}));
 
       controller = renderer.xr.getController(0);
       controller.addEventListener('select', onSelect);
       scene.add(controller);
 
-      resetBtn.addEventListener("click", () => {
-        points.length = 0;
-        while (scene.children.length > 1) scene.remove(scene.children[1]);
-        statusEl.textContent = "Touchez deux coins du bagage pour mesurer 📏";
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth/window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
       });
 
       renderer.setAnimationLoop(render);
     }
 
+    // Gestion des points posés en RA
     function onSelect() {
+      if (measurementDone) return;
       if (!hitTestSource) return;
+
       const frame = renderer.xr.getFrame();
       const referenceSpace = renderer.xr.getReferenceSpace();
       const viewerPose = frame.getViewerPose(referenceSpace);
 
-      if (viewerPose && hitTestSource) {
+      if (viewerPose) {
         const hitTestResults = frame.getHitTestResults(hitTestSource);
         if (hitTestResults.length > 0) {
           const hit = hitTestResults[0];
           const pose = hit.getPose(referenceSpace);
 
-          const pt = new THREE.Vector3().fromArray(pose.transform.position.toArray());
-          const marker = new THREE.Mesh(
-            new THREE.SphereGeometry(0.01, 16, 16),
-            new THREE.MeshBasicMaterial({ color: 0xff0000 })
-          );
-          marker.position.copy(pt);
+          const point = new THREE.Vector3().fromArray(pose.transform.position.toArray());
+
+          // Ajouter un marker sphère rouge
+          const sphereGeom = new THREE.SphereGeometry(0.01, 16, 16);
+          const sphereMat = new THREE.MeshBasicMaterial({color: 0xff0000});
+          const marker = new THREE.Mesh(sphereGeom, sphereMat);
+          marker.position.copy(point);
           scene.add(marker);
-          points.push(pt);
+
+          points.push(point);
 
           if (points.length === 2) {
             const dist = points[0].distanceTo(points[1]);
             const cm = (dist * 100).toFixed(1);
-            const ok = cm <= 55;
-            statusEl.innerHTML = `📐 Distance : <strong>${cm} cm</strong><br>${ok ? '✅ Bagage conforme OUIGO' : '❌ Trop grand pour OUIGO'}`;
+            const isOk = cm <= 55;
+
+            // Affichage distance + cadre 3D coloré
+            distanceResult.innerHTML = `📏 Distance mesurée : <strong>${cm} cm</strong> ${isOk ? '<span style="color:#0f0;">✅ Conforme OUIGO</span>' : '<span style="color:#f00;">❌ Trop grand</span>'}`;
+            instructions.textContent = "Mesure terminée. Merci !";
+
+            // Afficher un cube 3D autour des deux points
+            showBoundingBox(points[0], points[1], isOk);
+
+            // Voix synthétique
+            speak(isOk ? "Votre bagage est conforme, bon voyage !" : "Attention, votre bagage est trop grand pour OUIGO");
+
+            measurementDone = true;
+            capturePhotoBtn.style.display = 'inline-block';
           }
         }
       }
     }
 
+    // Affiche un cube 3D entre deux points, coloré selon conformité
+    function showBoundingBox(p1, p2, isOk) {
+      const boxSize = new THREE.Vector3().subVectors(p2, p1).abs();
+      const center = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+
+      // Cube semi-transparent
+      const boxGeom = new THREE.BoxGeometry(boxSize.x, boxSize.y, boxSize.z);
+      const boxMat = new THREE.MeshBasicMaterial({
+        color: isOk ? 0x00ff00 : 0xff0000,
+        transparent: true,
+        opacity: 0.25,
+        depthWrite: false
+      });
+      const box = new THREE.Mesh(boxGeom, boxMat);
+      box.position.copy(center);
+      scene.add(box);
+    }
+
+    // Render loop WebXR
     function render(timestamp, frame) {
       if (frame) {
         const session = renderer.xr.getSession();
         if (!hitTestSourceRequested) {
-          session.requestReferenceSpace('viewer').then((referenceSpace) => {
-            session.requestHitTestSource({ space: referenceSpace }).then((source) => {
+          session.requestReferenceSpace('viewer').then(refSpace => {
+            session.requestHitTestSource({space: refSpace}).then(source => {
               hitTestSource = source;
             });
           });
@@ -160,8 +282,40 @@
       renderer.render(scene, camera);
     }
 
-    initVideoAndModel();
-    initXR();
+    // Capture photo du canvas WebGL
+    function capturePhoto() {
+      renderer.domElement.toBlob(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'bagage_capture.png';
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+
+    // Démarrage complet
+    async function startDemo() {
+      btnStart.style.display = 'none';
+      calibrationBox.style.display = 'block';
+      instructions.textContent = "Place ta carte bancaire dans le cadre bleu et attends la calibration...";
+
+      await initVideo();
+      await loadModel();
+
+      detectLoop();
+
+      // Après 6 secondes, cacher cadre calibration et lancer WebXR
+      setTimeout(() => {
+        calibrationBox.style.display = 'none';
+        instructions.textContent = "Maintenant, touche deux points sur ton bagage pour mesurer";
+        initXR();
+      }, 6000);
+    }
+
+    btnStart.addEventListener('click', startDemo);
+    capturePhotoBtn.addEventListener('click', capturePhoto);
+
   </script>
 </body>
 </html>
