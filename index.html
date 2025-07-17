@@ -3,10 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Démo Détection Bagage OUIGO</title>
+<title>Démo Détection Bagage OUIGO - Calibration Fixe</title>
 
 <style>
-  /* Palette OUIGO */
   :root {
     --ouigo-rose: #ff3c9e;
     --ouigo-violet: #4b0082;
@@ -65,6 +64,7 @@
     margin-top: 60px;
     padding: 0 10px 30px 10px;
     text-align: center;
+    position: relative;
   }
 
   #video {
@@ -91,6 +91,8 @@
     border-radius: 14px;
     animation: pulseGlow 1.8s infinite ease-in-out;
     box-shadow: 0 0 20px var(--ouigo-jaune);
+    pointer-events: none;
+    z-index: 10;
   }
 
   @keyframes pulseGlow {
@@ -208,7 +210,6 @@
     width: 100vw; height: 100vh;
     z-index: 2000;
   }
-
 </style>
 </head>
 <body>
@@ -318,7 +319,6 @@
 
   // Dessin cadre avec glow & pulsation OUIGO
   let pulseOpacity = 0;
-  let pulseDirection = 1;
   function drawPulseRect(x,y,w,h,ok){
     ctx.clearRect(0,0,overlay.width, overlay.height);
     ctx.lineWidth = 6;
@@ -328,7 +328,7 @@
     ctx.beginPath();
     ctx.roundRect(x,y,w,h,14);
     ctx.stroke();
-    pulseOpacity += 0.07 * pulseDirection;
+    pulseOpacity += 0.07;
     if(pulseOpacity > Math.PI*2) pulseOpacity = 0;
   }
 
@@ -414,20 +414,6 @@
     }
   }
 
-  // Lissage bbox (moyenne mobile)
-  function smoothBBox(history) {
-    const len = history.length;
-    if(len === 0) return [0,0,0,0];
-    let sx=0, sy=0, sw=0, sh=0;
-    for(let i=0; i<len; i++){
-      sx += history[i][0];
-      sy += history[i][1];
-      sw += history[i][2];
-      sh += history[i][3];
-    }
-    return [sx/len, sy/len, sw/len, sh/len];
-  }
-
   // Synthèse vocale voix féminine naturelle
   function speak(text){
     if(!window.speechSynthesis) return;
@@ -437,25 +423,26 @@
     const voiceFr = voices.find(v => v.lang.startsWith('fr') && v.name.toLowerCase().includes('female'));
     const voiceEn = voices.find(v => v.lang.startsWith('en') && v.name.toLowerCase().includes('female'));
     utterance.voice = currentLang==='fr' ? (voiceFr || voices[0]) : (voiceEn || voices[0]);
-    utterance.rate = 1;
+    utterance.pitch = 1.1;
+    utterance.rate = 1.0;
     window.speechSynthesis.speak(utterance);
   }
 
-  // Confettis rose OUIGO (simple)
-  function triggerConfetti() {
-    for(let i=0; i<50; i++){
+  // Confettis simples rose/violet OUIGO
+  function triggerConfetti(){
+    for(let i=0; i<30; i++){
       confettis.push({
-        x: Math.random() * confettiCanvas.width,
-        y: Math.random() * confettiCanvas.height - confettiCanvas.height,
-        size: 6 + Math.random() * 8,
-        speed: 2 + Math.random() * 3,
-        angle: Math.random() * 2 * Math.PI,
-        spin: (Math.random() - 0.5) * 0.2,
-        color: 'rgba(255,60,158,' + (0.6 + Math.random()*0.4) + ')',
+        x: Math.random()*confettiCanvas.width,
+        y: -10,
+        size: 10 + Math.random()*10,
+        speed: 2 + Math.random()*3,
+        angle: Math.random()*Math.PI*2,
+        spin: (Math.random()-0.5)*0.2,
+        color: i % 2 === 0 ? 'var(--ouigo-rose)' : 'var(--ouigo-violet)'
       });
     }
   }
-  function drawConfetti() {
+  function drawConfetti(){
     confettiCtx.clearRect(0,0,confettiCanvas.width, confettiCanvas.height);
     for(let i=confettis.length-1; i>=0; i--){
       let c = confettis[i];
@@ -476,19 +463,23 @@
   }
   drawConfetti();
 
-  // Gestion langue
+  // Changement langue FR/EN
   langToggle.addEventListener('click', () => {
     currentLang = currentLang==='fr' ? 'en' : 'fr';
     langToggle.textContent = currentLang.toUpperCase();
-    instructions.forEach(el => el.style.display = (el.dataset.lang === currentLang ? 'block' : 'none'));
+    instructions.forEach(el => {
+      el.style.display = (el.dataset.lang === currentLang ? 'block' : 'none');
+    });
     feedback.textContent = '';
   });
 
-  // Start demo
+  // Bouton démarrer démo
   btnStart.addEventListener('click', () => {
     if(!isCalibrated){
-      alert(currentLang==='fr' ? 'Calibre d\'abord la taille de la carte en plaçant ta carte dans le cadre jaune puis clique sur "Démarrer la démo".' : 
-      'First calibrate your card size by placing your card inside the yellow box, then click "Start demo".');
+      calibrate();
+    }
+    if(!isCalibrated){
+      alert(currentLang==='fr' ? 'Place ta carte dans le cadre jaune puis clique sur "Démarrer la démo".' : 'Place your card inside the yellow box then click "Start demo".');
       return;
     }
     btnStart.disabled = true;
@@ -497,7 +488,7 @@
     detectFrame();
   });
 
-  // Reset calibration
+  // Bouton reset calibration
   btnReset.addEventListener('click', () => {
     isCalibrated = false;
     calibrationPxWidth = 0;
@@ -509,43 +500,41 @@
     feedback.textContent = currentLang==='fr' ? 'Calibration réinitialisée. Place ta carte dans le cadre jaune.' : 'Calibration reset. Place your card inside the yellow box.';
   });
 
-  // Calibration (carte dans cadre jaune)
+  // Calibration simplifiée : mesure du cadre fixe en pixels dans la vidéo
   function calibrate() {
     const boxRect = calibrationBox.getBoundingClientRect();
     const videoRect = video.getBoundingClientRect();
 
-    // Calculer la largeur en px du cadre jaune dans la vidéo
     calibrationPxWidth = boxRect.width * (video.videoWidth / videoRect.width);
     scalePxToCm = realCardWidthCm / calibrationPxWidth;
+
     isCalibrated = true;
+    feedback.textContent = currentLang==='fr' ? 'Calibration OK ! Place ton bagage devant la caméra.' : 'Calibration OK! Place your bag in front of the camera.';
   }
 
-  // Boucle détection + calibration au début
-  async function detectFrame() {
-    if(!model) {
+  // Boucle détection + affichage
+  async function detectFrame(){
+    if(!model){
       feedback.textContent = currentLang==='fr' ? 'Chargement modèle...' : 'Loading model...';
       await loadModel();
-    }
-
-    if(!isCalibrated){
-      calibrate();
-      feedback.textContent = currentLang==='fr' ? 'Calibration OK ! Place ton bagage devant la caméra.' : 'Calibration OK! Place your bag in front of the camera.';
     }
 
     model.detect(video).then(predictions => {
       ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-      // Cherche les valises (suitcases), sacs (backpack) ou sacs à main (handbag)
-      const bagages = predictions.filter(p => ['suitcase', 'backpack', 'handbag'].includes(p.class));
+      // Filtre valises/sacs
+      const bagages = predictions.filter(p => ['suitcase','backpack','handbag'].includes(p.class));
 
       if(bagages.length === 0){
         feedback.textContent = currentLang==='fr' ? 'Pas de bagage détecté 😕' : 'No baggage detected 😕';
         confidenceFill.style.width = '0%';
-        return requestAnimationFrame(detectFrame);
+        detectionStableCount = 0;
+        requestAnimationFrame(detectFrame);
+        return;
       }
 
-      // Prendre la meilleure détection (confiance max)
-      const best = bagages.reduce((a,b) => (a.score > b.score ? a : b));
+      // Meilleure confiance
+      const best = bagages.reduce((a,b) => a.score > b.score ? a : b);
 
       // Lissage bbox historique
       bboxHistory.push([best.bbox[0], best.bbox[1], best.bbox[2], best.bbox[3]]);
@@ -553,24 +542,22 @@
 
       const [x,y,w,h] = smoothBBox(bboxHistory);
 
-      // Estimation largeur cm
+      // Largeur estimée en cm
       const widthCm = pxToCm(w);
 
-      // Détection OK si largeur max 55 cm (norme OUIGO bagage cabine)
+      // Vérif largeur max OUIGO 55cm
       const isOk = widthCm <= 55;
 
-      // Dessiner cadre avec effet OUIGO
+      // Dessin cadre pulsant OUIGO
       drawPulseRect(x,y,w,h,isOk);
 
-      // Affichage barre confiance
+      // Barre confiance
       setConfidenceBar(best.score);
 
-      // Affichage message et synthèse vocale
+      // Message + voix
       setMessageStatus(isOk, currentLang);
-      const suggestion = getSuggestion(isOk, widthCm, currentLang);
-      feedback.insertAdjacentHTML('beforeend', `<br><small>${suggestion}</small>`);
+      feedback.insertAdjacentHTML('beforeend', `<br><small>${getSuggestion(isOk, widthCm, currentLang)}</small>`);
 
-      // Synthèse vocale (une fois stable)
       if(detectionStableCount === 0 && best.score > 0.7){
         speak(feedback.textContent);
       }
@@ -580,7 +567,7 @@
         detectionStableCount = 0;
       }
 
-      // Capture image bagage toutes les 50 frames quand stable
+      // Capture image bagage tous les 50 frames stables
       if(detectionStableCount === 50){
         const imgData = captureBagageImage([x,y,w,h]);
         addBagageToList(imgData, widthCm, isOk);
@@ -591,12 +578,10 @@
     });
   }
 
-  // Initial setup
+  // Setup initial
   setupCamera().then(() => {
-    loadModel();
     feedback.textContent = 'Place ta carte bancaire dans le cadre jaune pour calibrer.';
   });
 </script>
-
 </body>
 </html>
