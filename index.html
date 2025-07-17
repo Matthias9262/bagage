@@ -1,226 +1,167 @@
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <title>Détection Bagage OUIGO</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <meta charset="UTF-8">
+  <title>Scanner RA Bagage + IA</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.148.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.148.0/examples/jsm/webxr/ARButton.js"></script>
   <style>
     body {
+      margin: 0;
+      overflow: hidden;
       font-family: sans-serif;
-      background: #f4f4f4;
-      text-align: center;
-      padding: 20px;
     }
-    video, canvas {
-      border-radius: 10px;
-      width: 640px;
-      height: 480px;
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.6);
+      color: white;
+      font-size: 16px;
+      z-index: 1;
+      border-radius: 8px;
     }
-    #container {
-      position: relative;
-      display: inline-block;
+    #reset {
+      background: #007aff;
+      color: white;
+      border: none;
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 16px;
+      margin-top: 10px;
     }
-    canvas {
+    video {
       position: absolute;
       top: 0;
       left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: -1;
     }
-    #status {
-      font-size: 1.2em;
-      font-weight: bold;
-      margin-top: 15px;
-    }
-    .ok { color: green; }
-    .not-ok { color: red; }
   </style>
 </head>
 <body>
-  <h1>🧳 Vérification Bagage OUIGO</h1>
-  <p>Placez une carte bancaire dans le champ pour calibrer automatiquement</p>
-  <div id="container">
-    <video id="video" autoplay muted playsinline></video>
-    <canvas id="canvas"></canvas>
+  <video id="video" autoplay muted playsinline></video>
+  <div id="info">
+    <div id="status">🎯 Touchez deux coins du bagage pour mesurer 📏</div>
+    <div id="type">🔎 Type : analyse en cours...</div>
+    <button id="reset">Réinitialiser</button>
   </div>
-  <div id="status">Chargement du modèle...</div>
 
   <script>
-    const video = document.getElementById("video");
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
+    let camera, scene, renderer;
+    let controller;
+    let hitTestSource = null;
+    let hitTestSourceRequested = false;
+    const points = [];
+
     const statusEl = document.getElementById("status");
+    const typeEl = document.getElementById("type");
+    const resetBtn = document.getElementById("reset");
+    const video = document.getElementById("video");
 
-    const CARD_WIDTH_CM = 8.56; // largeur standard CB
-    let pixelPerCm = null;
-    let model = null;
-    const BAG_CLASSES = ['suitcase', 'backpack', 'handbag'];
-    let lastSpokenMessage = "";
-
-    function speak(message) {
-      const synth = window.speechSynthesis;
-      if (!synth || message === lastSpokenMessage) return;
-      if (synth.speaking) synth.cancel();
-
-      const utter = new SpeechSynthesisUtterance(message);
-      utter.lang = 'fr-FR';
-      utter.rate = 1;
-
-      const voices = synth.getVoices();
-      const femaleVoice = voices.find(v =>
-        v.lang === 'fr-FR' && /femme|female|Google français/i.test(v.name)
-      );
-      if (femaleVoice) utter.voice = femaleVoice;
-
-      synth.speak(utter);
-      lastSpokenMessage = message;
-    }
-
-    window.speechSynthesis.onvoiceschanged = () => {
-      speechSynthesis.getVoices();
-    };
-
-    function isOuigoCompatible(w, h) {
-      return w <= 55 && h <= 35;
-    }
-
-    async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }, audio: false
-      });
+    async function initVideoAndModel() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
       video.srcObject = stream;
-      return new Promise(resolve => {
-        video.onloadedmetadata = () => {
-          video.play();
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          resolve();
-        };
+      const model = await cocoSsd.load();
+      detect(model);
+    }
+
+    async function detect(model) {
+      const detectLoop = async () => {
+        const predictions = await model.detect(video);
+        const bag = predictions.find(p => ['suitcase', 'backpack', 'handbag'].includes(p.class) && p.score > 0.6);
+        if (bag) {
+          typeEl.innerHTML = `🧳 Objet détecté : <strong>${bag.class}</strong> (${(bag.score * 100).toFixed(0)}%)`;
+        } else {
+          typeEl.textContent = "🔎 Aucun bagage détecté pour l’instant...";
+        }
+        requestAnimationFrame(() => detect(model));
+      };
+      detectLoop();
+    }
+
+    function initXR() {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      container.appendChild(renderer.domElement);
+
+      document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] }));
+
+      controller = renderer.xr.getController(0);
+      controller.addEventListener('select', onSelect);
+      scene.add(controller);
+
+      resetBtn.addEventListener("click", () => {
+        points.length = 0;
+        while (scene.children.length > 1) scene.remove(scene.children[1]);
+        statusEl.textContent = "Touchez deux coins du bagage pour mesurer 📏";
       });
+
+      renderer.setAnimationLoop(render);
     }
 
-    function detectCard(imageData) {
-      const { data, width, height } = imageData;
-      const blockSize = 10;
-      const boxes = [];
+    function onSelect() {
+      if (!hitTestSource) return;
+      const frame = renderer.xr.getFrame();
+      const referenceSpace = renderer.xr.getReferenceSpace();
+      const viewerPose = frame.getViewerPose(referenceSpace);
 
-      for (let y = 0; y < height; y += blockSize) {
-        for (let x = 0; x < width; x += blockSize) {
-          let sum = 0;
-          for (let dy = 0; dy < blockSize; dy++) {
-            for (let dx = 0; dx < blockSize; dx++) {
-              const px = ((y + dy) * width + (x + dx)) * 4;
-              const avg = (data[px] + data[px + 1] + data[px + 2]) / 3;
-              sum += avg;
-            }
-          }
-          const avgBlock = sum / (blockSize * blockSize);
-          if (avgBlock > 210) {
-            boxes.push({ x, y });
+      if (viewerPose && hitTestSource) {
+        const hitTestResults = frame.getHitTestResults(hitTestSource);
+        if (hitTestResults.length > 0) {
+          const hit = hitTestResults[0];
+          const pose = hit.getPose(referenceSpace);
+
+          const pt = new THREE.Vector3().fromArray(pose.transform.position.toArray());
+          const marker = new THREE.Mesh(
+            new THREE.SphereGeometry(0.01, 16, 16),
+            new THREE.MeshBasicMaterial({ color: 0xff0000 })
+          );
+          marker.position.copy(pt);
+          scene.add(marker);
+          points.push(pt);
+
+          if (points.length === 2) {
+            const dist = points[0].distanceTo(points[1]);
+            const cm = (dist * 100).toFixed(1);
+            const ok = cm <= 55;
+            statusEl.innerHTML = `📐 Distance : <strong>${cm} cm</strong><br>${ok ? '✅ Bagage conforme OUIGO' : '❌ Trop grand pour OUIGO'}`;
           }
         }
       }
-
-      if (boxes.length < 10) return null;
-      const minX = Math.min(...boxes.map(b => b.x));
-      const maxX = Math.max(...boxes.map(b => b.x));
-      const minY = Math.min(...boxes.map(b => b.y));
-      const maxY = Math.max(...boxes.map(b => b.y));
-
-      const w = maxX - minX;
-      const h = maxY - minY;
-      const ratio = w / h;
-
-      if (w > 30 && h > 15 && ratio > 1.4 && ratio < 1.8) {
-        return { x: minX, y: minY, width: w, height: h };
-      }
-      return null;
     }
 
-    async function detectFrame() {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-      const card = detectCard(imgData);
-      if (card) {
-        ctx.strokeStyle = "blue";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(card.x, card.y, card.width, card.height);
-        ctx.fillStyle = "blue";
-        ctx.fillText("CB détectée", card.x + 5, card.y - 10);
-        pixelPerCm = card.width / CARD_WIDTH_CM;
-      } else {
-        pixelPerCm = null;
-        ctx.fillStyle = "gray";
-        ctx.fillText("⚠️ Carte bleue non détectée", 10, 20);
-      }
-
-      const predictions = await model.detect(video);
-      let bagDetected = false;
-
-      for (const pred of predictions) {
-        if (BAG_CLASSES.includes(pred.class) && pred.score > 0.5) {
-          bagDetected = true;
-          const [x, y, w, h] = pred.bbox;
-
-          ctx.strokeStyle = "orange";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x, y, w, h);
-          ctx.fillStyle = "black";
-          ctx.fillText(`${pred.class} ${(pred.score * 100).toFixed(1)}%`, x + 4, y - 4);
-
-          if (pixelPerCm) {
-            const widthCm = (w / pixelPerCm).toFixed(1);
-            const heightCm = (h / pixelPerCm).toFixed(1);
-            const ok = isOuigoCompatible(widthCm, heightCm);
-
-            ctx.fillStyle = ok ? "green" : "red";
-            ctx.fillText(`~${widthCm}×${heightCm} cm`, x + 4, y + h + 16);
-            ctx.fillText(ok ? "✅ Format OUIGO OK" : "❌ Trop grand", x + 4, y + h + 32);
-
-            if (ok) {
-              const msg = `Bagage accepté en cabine OUIGO. N'oubliez pas l'option bagage si vous en avez plus d’un !`;
-              statusEl.innerHTML = `<span class="ok">
-                ✅ Bagage accepté (${widthCm}×${heightCm} cm)<br>
-                🧳 <em>${msg}</em>
-              </span>`;
-              speak(msg);
-            } else {
-              const msg = `Bagage trop grand pour OUIGO. Pensez à l'option bagage ou à voyager plus léger.`;
-              statusEl.innerHTML = `<span class="not-ok">
-                ❌ Bagage trop grand (${widthCm}×${heightCm} cm)<br>
-                😬 <em>${msg}</em>
-              </span>`;
-              speak(msg);
-            }
-          } else {
-            statusEl.textContent = "🕵️ Calibration en attente (CB non détectée)";
-          }
-
-          break;
+    function render(timestamp, frame) {
+      if (frame) {
+        const session = renderer.xr.getSession();
+        if (!hitTestSourceRequested) {
+          session.requestReferenceSpace('viewer').then((referenceSpace) => {
+            session.requestHitTestSource({ space: referenceSpace }).then((source) => {
+              hitTestSource = source;
+            });
+          });
+          hitTestSourceRequested = true;
         }
       }
-
-      if (!bagDetected) {
-        statusEl.textContent = "🔍 En attente d’un bagage...";
-      }
-
-      requestAnimationFrame(detectFrame);
+      renderer.render(scene, camera);
     }
 
-    async function main() {
-      await setupCamera();
-      model = await cocoSsd.load();
-      statusEl.textContent = "Modèle chargé, détection en cours...";
-      detectFrame();
-
-      // force chargement des voix
-      setTimeout(() => {
-        speechSynthesis.getVoices();
-      }, 500);
-    }
-
-    main();
+    initVideoAndModel();
+    initXR();
   </script>
 </body>
 </html>
