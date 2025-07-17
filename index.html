@@ -3,137 +3,240 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Démo Bagage RA OUIGO Améliorée</title>
+<title>Démo Bagage RA OUIGO - Multi, Multilangue & Access</title>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 <style>
+  /* Reset & basics */
+  * {
+    box-sizing: border-box;
+  }
   body {
-    margin: 0; background: #111; color: #eee; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-    display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 100vh;
+    margin: 0; background: #13002F; color: #fff; font-family: "Arial", sans-serif;
+    display: flex; flex-direction: column; align-items: center; min-height: 100vh;
     user-select: none;
-    padding: 10px 0 40px 0;
+  }
+  /* Container */
+  #app {
+    width: 100vw; max-width: 480px;
+    padding: 1rem;
     position: relative;
   }
+  /* Video & canvas */
   #video {
-    width: 100vw; max-width: 480px; height: auto; border-radius: 12px; object-fit: cover; background: black;
-    position: relative; z-index: 1;
+    width: 100%;
+    border-radius: 14px;
+    background: black;
+    user-select: none;
   }
   #bboxCanvas {
-    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-    max-width: 480px; width: 100vw; height: auto;
-    pointer-events: none; z-index: 2;
+    position: absolute;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    height: auto;
+    pointer-events: none;
+    border-radius: 14px;
+    user-select: none;
   }
+  /* Calibration box */
   #calibration-box {
     position: absolute;
-    border: 3px dashed #E6007E; /* OUIGO rose vif */
-    border-radius: 10px;
-    width: 85mm; /* largeur carte bancaire */
-    height: 54mm; /* hauteur carte bancaire */
     top: 50%; left: 50%;
+    width: 85mm; height: 54mm;
+    border: 3px dashed #FF3FA6;
+    border-radius: 10px;
     transform: translate(-50%, -50%);
-    box-sizing: border-box;
     animation: pulseOUIGO 2s ease-in-out infinite;
     pointer-events: none;
-    z-index: 3;
+    user-select: none;
+    z-index: 10;
   }
   @keyframes pulseOUIGO {
-    0%, 100% { box-shadow: 0 0 12px 4px #E6007E88; }
-    50% { box-shadow: 0 0 24px 8px #FF3FA688; }
+    0%, 100% { box-shadow: 0 0 10px 4px #FF3FA688; }
+    50% { box-shadow: 0 0 24px 8px #E6007E88; }
   }
+  /* Overlay panel */
   #overlay {
-    position: relative;
-    margin-top: 15px;
-    width: 90vw; max-width: 480px;
-    background: rgba(230, 0, 126, 0.85);
-    padding: 12px 20px;
-    border-radius: 12px;
-    font-size: 18px;
-    user-select: none;
-    text-align: center;
-    font-weight: 600;
-    box-shadow: 0 0 8px #E6007EAA;
+    background: #1E004FDD;
+    border-radius: 14px;
+    padding: 1rem 1.5rem;
+    margin-top: 12px;
+    box-shadow: 0 0 20px #E6007E88;
+    font-size: 16px;
+    line-height: 1.4;
   }
-  #btnStart, #btnReset {
-    margin-top: 15px;
-    padding: 14px 36px;
-    font-size: 20px;
+  /* Messages */
+  #instructions {
     font-weight: 700;
-    border-radius: 40px;
-    border: none;
-    background: #FF3FA6;
-    color: #fff;
-    cursor: pointer;
-    user-select: none;
-    transition: background 0.3s ease;
-    box-shadow: 0 0 10px #FF3FA6AA;
+    font-size: 18px;
+    margin-bottom: 8px;
   }
-  #btnStart:hover, #btnReset:hover {
-    background: #E6007E;
+  #countdown {
+    color: #FF7FCC;
+    font-weight: 700;
   }
+  #typeDetection {
+    margin: 10px 0 4px 0;
+    font-weight: 700;
+    font-size: 20px;
+    color: #FF3FA6;
+  }
+  #sizeResult {
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+  #suggestion {
+    margin: 10px 0 0 0;
+    font-weight: 600;
+    font-style: italic;
+    color: #FFC8E6;
+  }
+  /* Confidence bar */
   #confidenceBar {
     width: 100%;
     height: 14px;
-    background: #333;
-    border-radius: 7px;
-    margin-top: 6px;
+    background: #42007A;
+    border-radius: 8px;
     overflow: hidden;
-    box-shadow: inset 0 0 5px #000;
+    box-shadow: inset 0 0 6px #000;
+    margin-bottom: 10px;
   }
   #confidenceFill {
     height: 100%;
     width: 0%;
-    background: #0f0;
-    border-radius: 7px 0 0 7px;
-    transition: width 0.2s ease-out;
+    background: #FF3FA6;
+    border-radius: 8px 0 0 8px;
+    transition: width 0.3s ease;
   }
+  /* Message status */
   #messageStatus {
-    margin-top: 8px;
+    font-weight: 700;
     font-size: 22px;
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #messageStatus svg {
+    width: 26px; height: 26px;
+  }
+  /* Buttons */
+  button {
+    margin: 0.7rem 0.3rem 0 0.3rem;
+    padding: 0.8rem 1.6rem;
+    border-radius: 40px;
+    font-weight: 700;
+    font-size: 18px;
+    cursor: pointer;
+    border: none;
+    background: #FF3FA6;
+    color: #fff;
+    box-shadow: 0 0 10px #FF3FA6AA;
+    transition: background 0.3s ease;
+    user-select: none;
+  }
+  button:hover, button:focus {
+    background: #E6007E;
+    outline: none;
+  }
+  /* Multi bagages list */
+  #bagageList {
+    margin-top: 16px;
+    display: flex;
+    overflow-x: auto;
+    gap: 14px;
+    padding-bottom: 8px;
+  }
+  .bagage-item {
+    background: #2A005B;
+    border-radius: 12px;
+    flex: 0 0 auto;
+    width: 110px;
+    padding: 8px;
+    box-shadow: 0 0 12px #FF3FA6AA;
+    user-select: none;
+  }
+  .bagage-thumb {
+    width: 100%;
+    border-radius: 10px;
+    object-fit: cover;
+    aspect-ratio: 4/3;
+    background: #42007A;
+  }
+  .bagage-info {
+    margin-top: 6px;
+    color: #FFC8E6;
+    font-size: 14px;
+    text-align: center;
+    font-weight: 600;
+  }
+  /* Language toggle */
+  #langToggle {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    background: #FF3FA6;
+    border-radius: 24px;
+    width: 60px;
+    height: 30px;
+    color: white;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    box-shadow: 0 0 10px #FF3FA6AA;
+    user-select: none;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
   }
-  #messageStatus svg {
-    width: 28px;
-    height: 28px;
-  }
-  #countdown {
-    font-weight: 700;
-    font-size: 20px;
-    margin-top: 8px;
-    color: #fff;
-  }
-  #logoOuigo {
-    position: fixed;
-    top: 10px;
-    right: 10px;
-    width: 100px;
-    opacity: 0.15;
-    user-select: none;
-    pointer-events: none;
-    z-index: 1000;
+  /* Responsive */
+  @media (max-width: 400px) {
+    #bagageList {
+      width: 100vw;
+      padding-left: 10px;
+    }
+    .bagage-item {
+      width: 90px;
+    }
+    #overlay {
+      font-size: 14px;
+      padding: 1rem;
+    }
   }
 </style>
 </head>
 <body>
+  <div id="langToggle" tabindex="0" role="button" aria-label="Changer langue">FR</div>
+  <div id="app">
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="bboxCanvas"></canvas>
+    <div id="calibration-box" aria-hidden="true"></div>
 
-  <img id="logoOuigo" src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fd/OUIGO_logo_2019.svg/2560px-OUIGO_logo_2019.svg.png" alt="Logo OUIGO" />
+    <div id="overlay" role="region" aria-live="polite" aria-atomic="true">
+      <div id="instructions" tabindex="0">
+        <span data-lang="fr">Place ta carte bancaire dans le cadre rose pendant <span id="countdown">5</span> secondes pour calibrer 📏</span>
+        <span data-lang="en" style="display:none;">Place your credit card inside the pink frame for <span id="countdown">5</span> seconds to calibrate 📏</span>
+      </div>
+      <div id="typeDetection" tabindex="0" aria-live="polite"></div>
+      <div id="sizeResult" tabindex="0" aria-live="polite"></div>
+      <div id="confidenceBar" aria-label="Niveau de confiance de détection">
+        <div id="confidenceFill"></div>
+      </div>
+      <div id="messageStatus" tabindex="0" aria-live="polite"></div>
+      <div id="suggestion" tabindex="0" aria-live="polite"></div>
 
-  <video id="video" autoplay muted playsinline></video>
-  <canvas id="bboxCanvas"></canvas>
-  <div id="calibration-box"></div>
+      <button id="btnStart" aria-label="Démarrer la détection">Démarrer la démo</button>
+      <button id="btnReset" style="display:none;" aria-label="Recalibrer">Recalibrer</button>
+    </div>
 
-  <div id="overlay">
-    <div id="instructions">Place ta carte bancaire dans le cadre rose pendant <span id="countdown">5</span> secondes pour calibrer 📏</div>
-    <div id="typeDetection"></div>
-    <div id="confidenceBar"><div id="confidenceFill"></div></div>
-    <div id="messageStatus"></div>
-    <button id="btnStart">Démarrer la démo automatique</button>
-    <button id="btnReset" style="display:none;">Recalibrer</button>
+    <div id="bagageList" aria-label="Liste des bagages détectés"></div>
   </div>
 
 <script>
+  // ====== Variables & Sélections DOM ======
   const video = document.getElementById('video');
   const canvas = document.getElementById('bboxCanvas');
   const ctx = canvas.getContext('2d');
@@ -143,23 +246,38 @@
   const instructions = document.getElementById('instructions');
   const countdownEl = document.getElementById('countdown');
   const typeDetection = document.getElementById('typeDetection');
+  const sizeResult = document.getElementById('sizeResult');
   const confidenceFill = document.getElementById('confidenceFill');
   const messageStatus = document.getElementById('messageStatus');
+  const suggestion = document.getElementById('suggestion');
+  const bagageList = document.getElementById('bagageList');
+  const langToggle = document.getElementById('langToggle');
 
-  let model = null;
-  let isCalibrated = false;
-  let calibrationPxWidth = 0;
+  // Variables de calibration
   const realCardWidthCm = 8.5; // largeur carte bancaire en cm
+  let calibrationPxWidth = 0;
   let scalePxToCm = 0;
+  let isCalibrated = false;
 
-  // Pour stabiliser bbox
+  // Modèle COCO-SSD
+  let model = null;
+
+  // Détection stabilisation
   let bboxHistory = [];
   let detectionStableCount = 0;
-  const stableThreshold = 4; // frames consécutives nécessaires
+  const stableThreshold = 4;
 
-  let captureDone = false;
-  let countdownInterval = null;
+  // Multi bagages
+  const scannedBagages = [];
 
+  // Langue FR par défaut
+  let currentLang = 'fr';
+
+  // Pour synthèse vocale
+  let speechSynthesisSupported = 'speechSynthesis' in window;
+  let speaking = false;
+
+  // Dimensions canvas/video
   function adjustCanvas() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -167,191 +285,368 @@
     canvas.style.height = video.clientHeight + 'px';
   }
 
+  // Accès caméra
   async function setupCamera() {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-    video.srcObject = stream;
-    return new Promise(resolve => {
-      video.onloadedmetadata = () => {
-        adjustCanvas();
-        resolve();
-      };
-    });
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      video.srcObject = stream;
+      return new Promise(resolve => {
+        video.onloadedmetadata = () => {
+          adjustCanvas();
+          resolve();
+        };
+      });
+    } catch (err) {
+      alert(currentLang === 'fr' ? "Erreur d'accès caméra : " + err.message : "Camera access error: " + err.message);
+      throw err;
+    }
   }
 
+  // Charger modèle coco-ssd
   async function loadModel() {
     model = await cocoSsd.load();
   }
 
-  function calibrate() {
-    const rect = calibrationBox.getBoundingClientRect();
-    const videoRect = video.getBoundingClientRect();
-    calibrationPxWidth = rect.width * (video.videoWidth / videoRect.width);
-    scalePxToCm = realCardWidthCm / calibrationPxWidth;
-    isCalibrated = true;
-    instructions.textContent = "✅ Calibration terminée, approche un bagage devant la caméra...";
-    calibrationBox.style.display = 'none';
-    btnReset.style.display = 'inline-block';
-  }
-
+  // Parole synthétique (voix féminine francophone)
   function speak(text) {
-    if (!window.speechSynthesis) return;
-
+    if (!speechSynthesisSupported || speaking) return;
+    speaking = true;
     window.speechSynthesis.cancel();
-
     const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'fr-FR';
+    utter.lang = currentLang === 'fr' ? 'fr-FR' : 'en-US';
 
+    // Sélection voix féminine francophone ou anglophone
     const voices = window.speechSynthesis.getVoices();
+    let voice = voices.find(v => {
+      if (currentLang === 'fr') return v.lang.startsWith('fr') && /female|femme|f/gi.test(v.name.toLowerCase());
+      else return v.lang.startsWith('en') && /female|woman|girl|f/gi.test(v.name.toLowerCase());
+    });
+    if (!voice) voice = voices.find(v => v.lang.startsWith(currentLang === 'fr' ? 'fr' : 'en')) || null;
+    if (voice) utter.voice = voice;
 
-    function selectVoice() {
-      let voice = voices.find(v => v.lang.startsWith('fr') && /female|femme|f/gi.test(v.name));
-      if (!voice) {
-        voice = voices.find(v => v.lang.startsWith('fr'));
-      }
-      return voice || null;
-    }
-
-    let voice = selectVoice();
-
-    if (voice) {
-      utter.voice = voice;
-      utter.pitch = 1.1;
-      utter.rate = 0.9;
-    }
-
-    if (voices.length === 0) {
-      window.speechSynthesis.onvoiceschanged = () => {
-        const voicesUpdated = window.speechSynthesis.getVoices();
-        utter.voice = voicesUpdated.length ? selectVoice() : null;
-        window.speechSynthesis.speak(utter);
-      };
-    } else {
-      window.speechSynthesis.speak(utter);
-    }
+    utter.pitch = 1.1;
+    utter.rate = 0.9;
+    utter.onend = () => { speaking = false; };
+    window.speechSynthesis.speak(utter);
   }
 
-  function drawBBox(bbox, ok) {
+  // Dessine bbox avec animation pulsée
+  let pulseAlpha = 0;
+  let pulseIncreasing = true;
+  function drawPulseRect(x, y, w, h, ok) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Pulsation alpha
+    if (pulseIncreasing) {
+      pulseAlpha += 0.02;
+      if (pulseAlpha >= 0.6) pulseIncreasing = false;
+    } else {
+      pulseAlpha -= 0.02;
+      if (pulseAlpha <= 0.2) pulseIncreasing = true;
+    }
+    const baseColor = ok ? [230,0,126] : [255,63,166];
     ctx.lineWidth = 5;
-    ctx.strokeStyle = ok ? '#E6007E' : '#FF3FA6';
-    ctx.fillStyle = ok ? 'rgba(230,0,126,0.3)' : 'rgba(255,63,166,0.3)';
-    ctx.font = "26px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-    ctx.fillRect(bbox[0], bbox[1], bbox[2], bbox[3]);
-    ctx.strokeRect(bbox[0], bbox[1], bbox[2], bbox[3]);
+    ctx.strokeStyle = `rgba(${baseColor[0]},${baseColor[1]},${baseColor[2]},${pulseAlpha.toFixed(2)})`;
+    ctx.fillStyle = `rgba(${baseColor[0]},${baseColor[1]},${baseColor[2]},0.3)`;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
   }
 
-  function pulseCanvasColor(ok) {
-    // Animation pulse simple en changeant la couleur de bordure du canvas
-    const colorStart = ok ? '#E6007E' : '#FF3FA6';
-    const pulseDuration = 1000;
-    let startTime = null;
-
-    function animate(timestamp) {
-      if (!startTime) startTime = timestamp;
-      let progress = (timestamp - startTime) / pulseDuration;
-      if (progress > 1) progress = 1;
-      const alpha = 0.4 + 0.6 * Math.abs(Math.sin(progress * Math.PI * 2));
-      ctx.strokeStyle = ok ? `rgba(230,0,126,${alpha.toFixed(2)})` : `rgba(255,63,166,${alpha.toFixed(2)})`;
-      ctx.lineWidth = 6;
-      ctx.strokeRect(lastSmoothBBox[0], lastSmoothBBox[1], lastSmoothBBox[2], lastSmoothBBox[3]);
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      }
+  // Lissage bbox (moyenne mobile)
+  function smoothBBox(history) {
+    if (history.length === 0) return null;
+    let avg = [0,0,0,0];
+    for(const b of history){
+      avg[0]+=b[0]; avg[1]+=b[1]; avg[2]+=b[2]; avg[3]+=b[3];
     }
-    requestAnimationFrame(animate);
+    return avg.map(x => x/history.length);
   }
 
-  let lastSmoothBBox = null;
-
-  function smoothBBox(newBBox) {
-    bboxHistory.push(newBBox);
-    if (bboxHistory.length > 5) bboxHistory.shift();
-
-    let avgBBox = [0, 0, 0, 0];
-    for (const box of bboxHistory) {
-      avgBBox[0] += box[0];
-      avgBBox[1] += box[1];
-      avgBBox[2] += box[2];
-      avgBBox[3] += box[3];
-    }
-    avgBBox = avgBBox.map(x => x / bboxHistory.length);
-    lastSmoothBBox = avgBBox;
-    return avgBBox;
-  }
-
-  function setConfidenceBar(score) {
-    const percent = Math.min(1, Math.max(0, score)) * 100;
+  // Affiche barre confiance
+  function setConfidenceBar(score){
+    const percent = Math.min(1, Math.max(0, score))*100;
     confidenceFill.style.width = percent + '%';
-    confidenceFill.style.background = percent > 0.7 ? '#00ff66' : percent > 0.4 ? '#ffcc00' : '#ff3300';
+    confidenceFill.style.background = percent > 0.7 ? '#00ff88' : percent > 0.4 ? '#ffcc00' : '#ff3300';
   }
 
-  function setMessageStatus(ok) {
-    if(ok) {
+  // Message status avec icone
+  function setMessageStatus(ok, lang) {
+    if(ok){
       messageStatus.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" fill="#00ff66" viewBox="0 0 24 24"><path d="M9 16.17l-3.59-3.58L4 14l5 5 12-12-1.41-1.42z"/></svg>
-        Bagage conforme OUIGO !
+      <svg xmlns="http://www.w3.org/2000/svg" fill="#00ff88" viewBox="0 0 24 24"><path d="M9 16.17l-3.59-3.58L4 14l5 5 12-12-1.41-1.42z"/></svg>
+      ${lang==='fr'? 'Bagage conforme OUIGO !' : 'OUIGO compliant bag!'}
       `;
     } else {
       messageStatus.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" fill="#ff3300" viewBox="0 0 24 24"><path d="M18.3 5.71L12 12l6.3 6.29-1.42 1.42L10.59 13.4 4.3 19.7 2.88 18.29 9.17 12 2.88 5.71 4.3 4.29 10.59 10.58 16.88 4.29z"/></svg>
-        Bagage trop grand !
+      <svg xmlns="http://www.w3.org/2000/svg" fill="#ff3300" viewBox="0 0 24 24"><path d="M18.3 5.71L12 12l6.3 6.29-1.42 1.42L10.59 13.4 4.3 19.7 2.88 18.29 9.17 12 2.88 5.71 4.3 4.29 10.59 10.58 16.88 4.29z"/></svg>
+      ${lang==='fr'? 'Bagage trop grand !' : 'Bag too big!'}
       `;
     }
   }
 
-  async function detectLoop() {
-    if (!model) return;
-    const predictions = await model.detect(video);
-    // Ajouter un objet 'sports bag' pour exemple (non dans COCO-SSD officiel)
-    // Pour démo on reste sur suitcase, backpack, handbag
-    const bagClasses = ['suitcase', 'backpack', 'handbag']; 
-    const bag = predictions.find(p => bagClasses.includes(p.class) && p.score > 0.85);
-
-    if (bag && isCalibrated) {
-      detectionStableCount++;
-      bboxHistory.push(bag.bbox);
-      if (bboxHistory.length > 5) bboxHistory.shift();
-
-      setConfidenceBar(bag.score);
-
-      if (detectionStableCount >= stableThreshold) {
-        const smoothBox = smoothBBox(bboxHistory);
-        drawBBox(smoothBox, true);
-
-        typeDetection.textContent = `🧳 Objet détecté : ${bag.class} (${(bag.score*100).toFixed(0)}%)`;
-
-        const bboxPxWidth = smoothBox[2];
-        const bboxCmWidth = bboxPxWidth * scalePxToCm;
-        const maxWidthCm = 55;
-        const ok = bboxCmWidth <= maxWidthCm;
-
-        sizeResult.textContent = `Largeur estimée : ${bboxCmWidth.toFixed(1)} cm — ${ok ? '✅ Conforme OUIGO' : '❌ Trop large'}`;
-        setMessageStatus(ok);
-
-        if (!captureDone && ok) {
-          speak("Super, votre bagage est OK pour OUIGO ! Et si vous en avez plus, pensez à l’option bagage supplémentaire, histoire d’éviter les surprises !");
-          captureDone = true;
-          setTimeout(() => { captureDone = false; }, 10000);
-        } else if (!captureDone && !ok) {
-          speak("Attention, votre bagage est trop grand pour OUIGO");
-          captureDone = true;
-          setTimeout(() => { captureDone = false; }, 10000);
-        }
-      }
+  // Suggestions personnalisées selon taille
+  function getSuggestion(isOk, widthCm, lang) {
+    if(isOk){
+      return lang==='fr' 
+        ? "Top, votre bagage est aux normes OUIGO. Pensez à l’option bagage supplémentaire si vous en avez plusieurs !"
+        : "Great, your bag is OUIGO compliant. Remember to add extra luggage if you have more!";
+    } else if(widthCm < 60){
+      return lang==='fr' 
+        ? "Attention, ce bagage est un peu grand, vérifiez à l'accueil OUIGO."
+        : "Warning, this bag is slightly large, please check at OUIGO reception.";
     } else {
+      return lang==='fr' 
+        ? "Ce bagage dépasse largement la limite OUIGO, attention aux frais supplémentaires."
+        : "This bag far exceeds OUIGO limits, beware of extra fees.";
+    }
+  }
+
+  // Ajoute bagage détecté à la liste (miniature + texte)
+  function addBagageToList(imageDataUrl, widthCm, isOk) {
+    const item = document.createElement('div');
+    item.className = 'bagage-item';
+    item.tabIndex = 0;
+    item.setAttribute('aria-label', (currentLang==='fr' ? "Bagage détecté, largeur " : "Detected luggage, width ") + widthCm.toFixed(1) + " cm");
+
+    const img = document.createElement('img');
+    img.className = 'bagage-thumb';
+    img.src = imageDataUrl;
+    img.alt = currentLang==='fr' ? 'Miniature du bagage détecté' : 'Detected bag thumbnail';
+
+    const info = document.createElement('div');
+    info.className = 'bagage-info';
+    info.textContent = `${widthCm.toFixed(1)} cm — ${isOk ? (currentLang==='fr'? "Conforme" : "Compliant") : (currentLang==='fr'? "Trop large" : "Too big")}`;
+
+    item.appendChild(img);
+    item.appendChild(info);
+    bagageList.appendChild(item);
+  }
+
+  // Capture image video zone bbox
+  function captureBagageImage(bbox) {
+    const [x,y,w,h] = bbox;
+    const scaleX = video.videoWidth / video.clientWidth;
+    const scaleY = video.videoHeight / video.clientHeight;
+
+    const sx = x * scaleX;
+    const sy = y * scaleY;
+    const sw = w * scaleX;
+    const sh = h * scaleY;
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = sw;
+    tempCanvas.height = sh;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+    return tempCanvas.toDataURL('image/jpeg', 0.8);
+  }
+
+  // Conversion px -> cm (après calibration)
+  function pxToCm(px) {
+    return px * scalePxToCm;
+  }
+
+  // Fonction principale détection & affichage
+  async function detectFrame() {
+    if (!model) return;
+    if (video.readyState !== 4) {
+      requestAnimationFrame(detectFrame);
+      return;
+    }
+
+    const predictions = await model.detect(video);
+
+    // Filtrer valises, sacs, bagages
+    const bagages = predictions.filter(p =>
+      ['suitcase','handbag','backpack'].includes(p.class)
+      && p.score > 0.5
+    );
+
+    if(bagages.length === 0){
+      // Pas de bagage détecté
+      typeDetection.textContent = currentLang==='fr' ? "Pas de bagage détecté." : "No luggage detected.";
+      sizeResult.textContent = "";
+      confidenceFill.style.width = '0%';
+      messageStatus.innerHTML = "";
+      suggestion.textContent = "";
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      requestAnimationFrame(detectFrame);
       detectionStableCount = 0;
       bboxHistory = [];
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      confidenceFill.style.width = '0%';
-      typeDetection.textContent = "🔎 Aucun bagage détecté...";
-      sizeResult.textContent = "";
-      messageStatus.innerHTML = "";
+      return;
     }
-    requestAnimationFrame(detectLoop);
+
+    // On prend le plus grand bbox en surface
+    let mainBagage = bagages.reduce((a,b) => {
+      return (a.bbox[2]*a.bbox[3]) > (b.bbox[2]*b.bbox[3]) ? a : b;
+    });
+
+    const [x, y, w, h] = mainBagage.bbox;
+
+    // Stabilisation bbox (moyenne mobile)
+    bboxHistory.push([x,y,w,h]);
+    if(bboxHistory.length > stableThreshold) bboxHistory.shift();
+    const [sx, sy, sw, sh] = smoothBBox(bboxHistory);
+
+    // Estimation taille en cm
+    if(!isCalibrated){
+      // En attendant calibration
+      calibrationBox.style.display = 'block';
+      instructions.style.display = 'block';
+      btnStart.style.display = 'none';
+      btnReset.style.display = 'none';
+      typeDetection.textContent = "";
+      sizeResult.textContent = "";
+      confidenceFill.style.width = '0%';
+      messageStatus.innerHTML = "";
+      suggestion.textContent = "";
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      requestAnimationFrame(detectFrame);
+      return;
+    } else {
+      calibrationBox.style.display = 'none';
+      instructions.style.display = 'none';
+      btnStart.style.display = 'none';
+      btnReset.style.display = 'inline-block';
+    }
+
+    // Calcul largeur bagage en cm avec scale
+    const widthCm = pxToCm(sw);
+    const heightCm = pxToCm(sh);
+    // Approxim volumique basique (largeur*hauteur*0.4) en cm3 (le facteur 0.4 approx profondeur)
+    const volumeCm3 = widthCm * heightCm * 0.4;
+
+    // Conformité OUIGO (max 55cm largeur)
+    const isOk = widthCm <= 55;
+
+    // Affichage bbox et pulsation
+    drawPulseRect(sx, sy, sw, sh, isOk);
+
+    // Affichage textes et barres
+    typeDetection.textContent = currentLang==='fr' ? `Type détecté : ${mainBagage.class}` : `Detected type: ${mainBagage.class}`;
+    sizeResult.textContent = currentLang==='fr' ? `Largeur estimée : ${widthCm.toFixed(1)} cm` : `Estimated width: ${widthCm.toFixed(1)} cm`;
+    setConfidenceBar(mainBagage.score);
+    setMessageStatus(isOk, currentLang);
+    suggestion.textContent = getSuggestion(isOk, widthCm, currentLang);
+
+    // Stabilité détection pour capture automatique
+    if(mainBagage.score > 0.7){
+      detectionStableCount++;
+    } else {
+      detectionStableCount = 0;
+    }
+
+    // Dès que stable 10 frames, capture bagage et ajoute liste + parle
+    if(detectionStableCount === 10){
+      const imgUrl = captureBagageImage([sx, sy, sw, sh]);
+      addBagageToList(imgUrl, widthCm, isOk);
+      speak(isOk 
+        ? (currentLang==='fr' 
+            ? "Bagage conforme. N'oubliez pas l'option bagage supplémentaire si vous avez plusieurs valises !" 
+            : "Bag compliant. Remember extra baggage option if you have more!")
+        : (currentLang==='fr' 
+            ? "Attention, bagage trop grand, vérifiez votre réservation." 
+            : "Warning, bag too big, please check your booking."));
+      detectionStableCount = 0;
+      bboxHistory = [];
+    }
+
+    requestAnimationFrame(detectFrame);
   }
 
-  function startCalibrationCountdown(duration = 5) {
-    let timeLeft = duration;
-    countdownEl.textContent = timeLeft;
+  // Calibration (carte bancaire dans cadre rose)
+  async function calibrate() {
+    instructions.querySelector('[data-lang="fr"]').style.display = currentLang==='fr' ? 'inline' : 'none';
+    instructions.querySelector('[data-lang="en"]').style.display = currentLang==='en' ? 'inline' : 'none';
+
+    btnStart.style.display = 'none';
+    btnReset.style.display = 'none';
+
+    let count = 5;
+    countdownEl.textContent = count;
     calibrationBox.style.display = 'block';
-    instructions.textContent = `Place
+
+    // On prend un point stable de la box calibration pour mesurer largeur px
+    // Ici on prend la largeur en px à la taille actuelle du cadre calibration (85mm)
+    // Utiliser getBoundingClientRect pour largeur en pixels à l'écran
+    const rect = calibrationBox.getBoundingClientRect();
+    calibrationPxWidth = rect.width;
+
+    const countdownInterval = setInterval(() => {
+      count--;
+      countdownEl.textContent = count;
+      if(count <= 0){
+        clearInterval(countdownInterval);
+        // Calcul scale px->cm
+        scalePxToCm = realCardWidthCm / calibrationPxWidth;
+        isCalibrated = true;
+        calibrationBox.style.display = 'none';
+        instructions.style.display = 'none';
+        btnReset.style.display = 'inline-block';
+        btnStart.style.display = 'none';
+        detectFrame();
+      }
+    }, 1000);
+  }
+
+  // Reset calibration
+  function resetCalibration() {
+    isCalibrated = false;
+    bboxHistory = [];
+    detectionStableCount = 0;
+    calibrationBox.style.display = 'block';
+    instructions.style.display = 'block';
+    btnStart.style.display = 'inline-block';
+    btnReset.style.display = 'none';
+    typeDetection.textContent = "";
+    sizeResult.textContent = "";
+    confidenceFill.style.width = '0%';
+    messageStatus.innerHTML = "";
+    suggestion.textContent = "";
+  }
+
+  // Switch langue simple
+  function switchLang() {
+    currentLang = currentLang === 'fr' ? 'en' : 'fr';
+    langToggle.textContent = currentLang.toUpperCase();
+
+    // Met à jour textes visibles
+    document.querySelectorAll('[data-lang]').forEach(el => {
+      el.style.display = (el.getAttribute('data-lang') === currentLang) ? 'inline' : 'none';
+    });
+
+    // Reset UI messages
+    resetCalibration();
+  }
+
+  // Événements boutons
+  btnStart.addEventListener('click', () => {
+    calibrate();
+  });
+  btnReset.addEventListener('click', () => {
+    resetCalibration();
+  });
+  langToggle.addEventListener('click', () => {
+    switchLang();
+  });
+  langToggle.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      switchLang();
+    }
+  });
+
+  // Init & setup caméra + modèle
+  async function init() {
+    await setupCamera();
+    await loadModel();
+    btnStart.style.display = 'inline-block';
+  }
+  init();
+
+  // Ajuste canvas sur resize window
+  window.addEventListener('resize', () => {
+    adjustCanvas();
+  });
+</script>
+</body>
+</html>
